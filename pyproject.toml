@@ -1,0 +1,85 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "flexible-unet-mlx"
+version = "0.2.5"
+description = "Native FP32 MLX FlexibleUNet released-checkpoint network"
+readme = "README.md"
+requires-python = ">=3.13,<3.15"
+license = "Apache-2.0"
+license-files = ["LICENSE", "THIRD_PARTY_NOTICES.md"]
+authors = [{ name = "Joseph Sandoval" }, { name = "Alfredo Sandoval Jr." }]
+classifiers = ["Operating System :: MacOS :: MacOS X"]
+dependencies = [
+  "medmlx-core==0.2.5",
+  "numpy>=2.0,<3",
+  "Pillow>=13,<14",
+]
+
+[project.urls]
+Homepage = "https://medmlx.org"
+Repository = "https://github.com/MedMLX/flexible-unet-mlx"
+Weights = "https://huggingface.co/MedMLX/flexible-unet-effnetb2-mlx"
+
+[project.entry-points."medmlx.models"]
+flexible-unet = "flexible_unet_mlx.medmlx:MODEL"
+
+[project.optional-dependencies]
+dev = [
+  "pyright==1.1.414",
+  "pytest>=8.4,<10",
+  "ruff>=0.13,<1",
+  "torch>=2.13,<2.14",
+  "hypothesis>=6.140,<7",
+  "safetensors>=0.6,<1",
+  "mlx==0.32.4 ; platform_machine == 'arm64' and sys_platform == 'darwin'",
+]
+
+[tool.hatch.metadata]
+allow-direct-references = true
+
+[tool.uv]
+constraint-dependencies = ["setuptools>=84.1.0", "filelock>=4.2.1", ]
+environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+required-environments = ["sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/flexible_unet_mlx"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--strict-config --strict-markers"
+
+[tool.ruff]
+line-length = 100
+target-version = "py313"
+
+[tool.ruff.lint]
+extend-select = ["TID251", "TID252", "ANN401"]
+select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
+
+[tool.pyright]
+include = ["scripts","src","tests"]
+extraPaths = ["src", "scripts"]
+pythonVersion = "3.13"
+typeCheckingMode = "strict"
+enableTypeIgnoreComments = false
+reportUnnecessaryTypeIgnoreComment = "error"
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "all"
+
+[tool.ruff.lint.flake8-tidy-imports.banned-api]
+"typing.Any" = { msg = "Use a precise type at the boundary." }
+"typing_extensions.Any" = { msg = "Use a precise type at the boundary." }
+
+[tool.hatch.build.targets.sdist]
+only-include = [
+  "src/flexible_unet_mlx",
+  "pyproject.toml",
+  "README.md",
+  "LICENSE",
+  "THIRD_PARTY_NOTICES.md",
+]
