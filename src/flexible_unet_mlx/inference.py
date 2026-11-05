@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
 import numpy as np
 from medmlx_core.errors import InvalidInputError
@@ -12,11 +12,8 @@ from flexible_unet_mlx._typing import FloatArray, HostArray
 from flexible_unet_mlx.network import FlexibleUNet
 from flexible_unet_mlx.runtime import require_metal
 
-if TYPE_CHECKING:
-    from mlx.core import array as NativeArray
 
-
-def forward_patch(network: FlexibleUNet, values: HostArray) -> FloatArray | dict[str, FloatArray]:
+def forward_patch(network: FlexibleUNet, values: HostArray) -> FloatArray:
     """Run one synchronized FP32 forward pass on Metal and return raw logits.
 
     Args:
@@ -30,8 +27,7 @@ def forward_patch(network: FlexibleUNet, values: HostArray) -> FloatArray | dict
     Returns:
         Logits of shape ``(B, 2, 736, 480)``, float32 and finite, with the same spatial
         axes as the input: channel 0 is background and channel 1 is tool. No softmax,
-        argmax or inverse resize is applied. The return type also allows a dict of named
-        arrays, but ``FlexibleUNet`` always returns a single array.
+        argmax or inverse resize is applied.
 
     Raises:
         InvalidInputError: ``values`` is not finite float32.
@@ -45,16 +41,11 @@ def forward_patch(network: FlexibleUNet, values: HostArray) -> FloatArray | dict
     mx = network.mx
     require_metal(mx)
     array = cast(ArrayFactory, mx.array)
-    result = cast("NativeArray | dict[str, NativeArray]", network(array(values)))
+    result = network(array(values))
     # MLX is lazy: force the graph to run, and wait for the GPU, before reading back.
     mx.eval(result)
     mx.synchronize()
-    host = (
-        {name: cast(HostArray, np.asarray(value)) for name, value in result.items()}
-        if isinstance(result, dict)
-        else cast(HostArray, np.asarray(result))
-    )
-    outputs = host.values() if isinstance(host, dict) else (host,)
-    if any(value.dtype != np.float32 or not np.isfinite(value).all() for value in outputs):
+    host = cast(HostArray, np.asarray(result))
+    if host.dtype != np.float32 or not np.isfinite(host).all():
         raise RuntimeError("Network produced invalid float32 outputs")
-    return cast(FloatArray | dict[str, FloatArray], host)
+    return cast(FloatArray, host)

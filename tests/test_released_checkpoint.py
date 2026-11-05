@@ -42,16 +42,13 @@ def test_converted_model_matches_independent_source(tmp_path: Path, mx: NativeRu
     network = load_model(Path(checkpoint))
     values = np.load(input_path, allow_pickle=False)
     assert values.shape == (1, 3, 736, 480)
-    result = forward_patch(network, values)
-    outputs = result if isinstance(result, dict) else {"logits": result}
-    for name, actual in outputs.items():
-        assert name in receipt["outputs"]
-        reference_path = Path(reference) / f"{name}.npy"
-        expected = np.load(reference_path, allow_pickle=False)
-        assert expected.shape == actual.shape
-        assert actual.dtype == np.float32 and np.isfinite(actual).all()
-        np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
-        np.testing.assert_array_equal(actual.argmax(axis=1), expected.argmax(axis=1))
+    actual = forward_patch(network, values)
+    assert "logits" in receipt["outputs"]
+    expected = np.load(Path(reference) / "logits.npy", allow_pickle=False)
+    assert expected.shape == actual.shape
+    assert actual.dtype == np.float32 and np.isfinite(actual).all()
+    np.testing.assert_allclose(actual, expected, atol=1e-4, rtol=1e-4)
+    np.testing.assert_array_equal(actual.argmax(axis=1), expected.argmax(axis=1))
 
 
 @pytest.fixture(scope="module")
@@ -97,7 +94,7 @@ def test_seeded_network_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> N
     image_path = tmp_path / "small.jpg"
     image_path.write_bytes(frame["jpeg"].tobytes())
     values = medmlx.preprocess(transforms.read_rgb(image_path))
-    actual = cast(FloatArray, forward_patch(load_model(destination), values))
+    actual = forward_patch(load_model(destination), values)
     expected = cast(FloatArray, arrays["logits"])
     assert actual.dtype == np.float32 and np.isfinite(actual).all()
     # FP32 reductions differ between Torch and MLX, so compare within a tolerance.

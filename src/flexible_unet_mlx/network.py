@@ -21,14 +21,12 @@ class FlexibleUNet(ChannelLastGraph):
 
     ``weights`` maps upstream state-dict names to MLX arrays (batch-norm counters
     removed). :func:`flexible_unet_mlx.load_model` validates these arrays and returns
-    a constructed model. Convolution
-    kernels keep the upstream ``(out, in, kH, kW)`` checkpoint layout. The first
-    call materializes convolution layouts and BN scales once, then compiles the
-    fixed inference graph. Weights are immutable for the lifetime of this model;
-    construct a new instance when replacing them.
+    a constructed model. Convolution kernels keep the upstream ``(out, in, kH, kW)``
+    checkpoint layout. The first call materializes convolution layouts and BN scales
+    once, then compiles the fixed inference graph. Weights are immutable for the
+    lifetime of this model; construct a new instance when replacing them.
     Activations are channel-last (NHWC) inside the graph. Batch norm uses the stored
-    running statistics (inference only) with epsilon 1e-3 passed explicitly, to match
-    the upstream graph; the shared default is 1e-5.
+    running statistics (inference only) with the upstream epsilon 1e-3.
 
     The input is ``(B, 3, 736, 480)`` float32 and the output ``(B, 2, 736, 480)``
     logits, both channel-first at the boundary. Axes 2 and 3 are the image's width
@@ -61,8 +59,8 @@ class FlexibleUNet(ChannelLastGraph):
         self._scales: dict[str, NativeArray] = {}
         self._compiled: Callable[[NativeArray], NativeArray] | None = None
 
-    def _prepare(self) -> None:
-        """Materialize immutable model constants before tracing the inference graph."""
+    def _prepare(self) -> Callable[[NativeArray], NativeArray]:
+        """Materialize immutable model constants, then compile the inference graph."""
         self._convolutions = {
             name.removesuffix(".weight"): self.mx.contiguous(self.mx.transpose(w, (0, 2, 3, 1)))
             for name, w in self.w.items() if name.endswith(".weight") and w.ndim == 4
@@ -74,27 +72,21 @@ class FlexibleUNet(ChannelLastGraph):
             for name, w in self.w.items() if name.endswith(".running_var")
         }
         self.mx.eval(self._convolutions, self._scales)
-        self._compiled = self.mx.compile(self._forward)
+        return self.mx.compile(self._forward)
 
     def conv(
         self, x: NativeArray, name: str, *, padding: int = 0, stride: int = 1, groups: int = 1
     ) -> NativeArray:
         """Convolve using the prepared OHWI weight, retaining the checkpoint bias."""
-        if self._compiled is None:
-            self._prepare()
         y = self.mx.conv2d(
             x, self._convolutions[name], stride=stride, padding=padding, groups=groups
         )
         bias = self.w.get(f"{name}.bias")
         return y if bias is None else y + bias
 
-    def batch_norm(self, x: NativeArray, name: str, *, eps: float = 1e-5) -> NativeArray:
-        """Apply inference BN, using the cached scale when ``eps`` is 1e-3."""
-        if self._compiled is None:
-            self._prepare()
-        scale = (self._scales[name] if eps == 1e-3 else
-                 self.w[f"{name}.weight"] * self.mx.rsqrt(self.w[f"{name}.running_var"] + eps))
-        return (x - self.w[f"{name}.running_mean"]) * scale + self.w[f"{name}.bias"]
+    def _bn(self, x: NativeArray, name: str) -> NativeArray:
+        """Apply inference BN with the scale cached for the upstream epsilon 1e-3."""
+        return (x - self.w[f"{name}.running_mean"]) * self._scales[name] + self.w[f"{name}.bias"]
 
     def pad(self, x: NativeArray, padding: list[int]) -> NativeArray:
         """Zero-pad an NHWC array by ``[left, right, top, bottom]`` pixels.
@@ -109,14 +101,10 @@ class FlexibleUNet(ChannelLastGraph):
 
     def mbconv(self, x: NativeArray, block: Block) -> NativeArray:
         """Apply one MBConv block (expand, depthwise, squeeze-excite, project) to NHWC ``x``."""
-        if self._compiled is None:
-            self._prepare()
         name = block["prefix"]
         y = x
         if block["expand_ratio"] != 1:
-            y = self.swish(
-                self.batch_norm(self.conv(y, f"{name}._expand_conv"), f"{name}._bn0", eps=1e-3)
-            )
+            y = self.swish(self._bn(self.conv(y, f"{name}._expand_conv"), f"{name}._bn0"))
         left, right, top, bottom = block["depthwise_padding"]
         y = depthwise_bn_silu(
             y, self.w[f"{name}._depthwise_conv.weight"],
@@ -132,7 +120,7 @@ class FlexibleUNet(ChannelLastGraph):
             self.swish(self.conv(squeezed, f"{name}._se_reduce")), f"{name}._se_expand"
         )
         y = y * self.mx.sigmoid(squeezed)
-        y = self.batch_norm(self.conv(y, f"{name}._project_conv"), f"{name}._bn2", eps=1e-3)
+        y = self._bn(self.conv(y, f"{name}._project_conv"), f"{name}._bn2")
         return (
             y + x if block["stride"] == 1 and block["in_channels"] == block["out_channels"] else y
         )
@@ -147,11 +135,8 @@ class FlexibleUNet(ChannelLastGraph):
         require_metal(self.mx)
         self.require_input(x, (3, 736, 480))
         if self._compiled is None:
-            self._prepare()
-        compiled = self._compiled
-        if compiled is None:
-            raise RuntimeError("FlexibleUNet compilation was not initialized")
-        return compiled(x)
+            self._compiled = self._prepare()
+        return self._compiled(x)
 
     def _forward(self, x: NativeArray) -> NativeArray:
         """Execute the pure array graph; public validation stays outside compilation."""
@@ -159,7 +144,7 @@ class FlexibleUNet(ChannelLastGraph):
         # MLX convolutions are channel-last: NCHW -> NHWC here, and back at the end.
         x = self.mx.transpose(x, (0, 2, 3, 1))
         y = self.conv(self.pad(x, spec["stem_padding"]), "encoder._conv_stem", stride=2)
-        y = self.swish(self.batch_norm(y, "encoder._bn0", eps=1e-3))
+        y = self.swish(self._bn(y, "encoder._bn0"))
         # Skip features are the last block output of each extracted stack, at strides
         # 2, 4, 8, 16 and 32; the final one is the decoder's starting point.
         features: list[NativeArray] = []
@@ -176,9 +161,5 @@ class FlexibleUNet(ChannelLastGraph):
             y = nearest2x_concat(y, features[-level - 2] if level < 4 else None, mx=self.mx)
             for conv in range(2):
                 name = f"decoder.blocks.{level}.convs.conv_{conv}"
-                y = self.relu(
-                    self.batch_norm(
-                        self.conv(y, f"{name}.conv", padding=1), f"{name}.adn.N", eps=1e-3
-                    )
-                )
+                y = self.relu(self._bn(self.conv(y, f"{name}.conv", padding=1), f"{name}.adn.N"))
         return self.mx.transpose(self.conv(y, "segmentation_head.0", padding=1), (0, 3, 1, 2))

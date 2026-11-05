@@ -1,7 +1,7 @@
 """Bundle transform parity with MONAI, an end-to-end run and argument rejection.
 
-The parity fixture is recorded by scripts/make_medmlx_fixtures.py, which runs the
-pinned bundle's upstream MONAI 1.4.0 transforms on seeded frames.
+The parity fixtures were recorded outside this repository by running the pinned
+bundle's upstream MONAI 1.4.0 transforms on seeded frames.
 """
 
 from __future__ import annotations

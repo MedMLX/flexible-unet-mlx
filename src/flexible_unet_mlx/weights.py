@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import cast
 
 import numpy as np
-from medmlx_core.checkpoints import HostArray, tensor_mapping_from_payload
+from medmlx_core.checkpoints import HostArray
 from medmlx_core.errors import InvalidInputError
 from medmlx_core.runtime import import_mlx
 from medmlx_core.typing import ArrayFactory
@@ -20,9 +20,7 @@ from flexible_unet_mlx.specification import specification
 MODEL_ID = "endoscopic_tool_segmentation"
 
 
-def _validate(
-    payload: Mapping[str, object] | Mapping[object, object],
-) -> dict[str, HostArray]:
+def _validate(state: Mapping[str, HostArray]) -> dict[str, HostArray]:
     """Check names, shapes, dtypes and finiteness against ``specification.json``.
 
     Training-only BatchNorm counters are not part of the native checkpoint.
@@ -32,11 +30,8 @@ def _validate(
         for key, value in specification()["parameters"].items()
         if not key.endswith("num_batches_tracked")
     }
-    if set(payload) != set(expected):
-        raise InvalidInputError(f"{MODEL_ID} checkpoint names differ from the pinned source graph")
-    state = tensor_mapping_from_payload(payload, what="endoscopic_tool_segmentation")
     if set(state) != set(expected):
-        raise InvalidInputError(f"{MODEL_ID} checkpoint values must all be tensors")
+        raise InvalidInputError(f"{MODEL_ID} checkpoint names differ from the pinned source graph")
     arrays: dict[str, HostArray] = {}
     for name, spec in expected.items():
         value = state[name]
@@ -46,8 +41,7 @@ def _validate(
             or not np.isfinite(value).all()
         ):
             raise InvalidInputError(f"Invalid {MODEL_ID} checkpoint parameter: {name}")
-        if not name.endswith("num_batches_tracked"):
-            arrays[name] = np.ascontiguousarray(value)
+        arrays[name] = np.ascontiguousarray(value)
     return arrays
 
 

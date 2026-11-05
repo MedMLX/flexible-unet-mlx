@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, NotRequired, Protocol, TypedDict
+from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 
 import numpy as np
 import numpy.typing as npt
@@ -135,7 +135,7 @@ class RunDetails(TypedDict):
     string form of MLX's default device. ``requires_human_review`` is always ``True``.
     """
 
-    weights_revision: NotRequired[str | None]
+    weights_revision: str | None
     bundle: str
     labels: dict[str, str]
     image_size: ImageSize

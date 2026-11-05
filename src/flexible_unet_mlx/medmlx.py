@@ -6,7 +6,7 @@ import os
 import tempfile
 import time
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from flexible_unet_mlx._typing import BoolArray, FloatArray, RunResult
 
@@ -202,13 +202,13 @@ def _predict(network: FlexibleUNet, image: FloatArray) -> tuple[FloatArray, str]
         logits = forward_patch(network, np.ascontiguousarray(image, dtype=np.float32))
     except (RuntimeError, ValueError) as error:
         raise ModelExecutionError(f"FlexibleUNet MLX inference failed: {error}") from error
-    return cast(FloatArray, logits), str(network.mx.default_device())
+    return logits, str(network.mx.default_device())
 
 
 def _write_atomic(path: Path, mask: BoolArray) -> None:
+    """Write a PNG through a temporary file and atomically replace its destination."""
     # Write next to the target, then rename, so an interrupted run cannot leave a
     # truncated PNG at the final path.
-    """Write a PNG through a temporary file and atomically replace its destination."""
     descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".png", dir=path.parent)
     os.close(descriptor)
     try:

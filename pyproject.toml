@@ -60,12 +60,8 @@ dev = [
   "pytest>=8.4,<10",
   "ruff>=0.13,<1",
   "torch>=2.13,<2.14",
-  "hypothesis>=6.140,<7",
   "safetensors>=0.6,<1",
 ]
-
-[tool.hatch.metadata]
-allow-direct-references = true
 
 [tool.uv]
 constraint-dependencies = ["setuptools>=84.1.0", "filelock>=4.2.1", ]
@@ -88,8 +84,8 @@ extend-select = ["TID251", "TID252", "ANN401"]
 select = ["E", "F", "I", "UP", "B", "SIM", "RUF"]
 
 [tool.pyright]
-include = ["scripts","src","tests"]
-extraPaths = ["src", "scripts"]
+include = ["src", "tests"]
+extraPaths = ["src"]
 pythonVersion = "3.13"
 typeCheckingMode = "strict"
 enableTypeIgnoreComments = false
