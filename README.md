@@ -19,6 +19,8 @@ Segment surgical tools in RGB endoscopy frames with FlexibleUNet and native MLX.
 | :--- | :--- |
 | RGB image | Tool mask at the original size |
 
+Weights: 46 MB download. Peak MLX memory: 0.27 GB for a 768×576 endoscopy frame.
+
 ## Use with MedMLX
 
 The [MedMLX MCP server](https://github.com/MedMLX/medmlx/blob/main/docs/mcp.md) is the lowest-friction way to use this model. It installs this runtime, downloads its weights on first use, and lets an AI agent describe, check and run `flexible-unet` for you.

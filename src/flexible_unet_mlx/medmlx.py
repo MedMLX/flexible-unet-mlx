@@ -27,6 +27,8 @@ MODEL = {
     "label": "FlexibleUNet endoscopic tools",
     "task": "segmentation",
     "run": "flexible_unet_mlx.medmlx:run",
+    # Measured MLX peak for a 768x576 endoscopy frame; larger inputs need more.
+    "peak_memory_gb": 0.3,
     "summary": "MONAI endoscopic_tool_segmentation: surgical tools in RGB endoscopy frames.",
     "labels": {str(value): name for value, name in LABELS.items()},
 }
