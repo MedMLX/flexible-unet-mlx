@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "flexible-unet-mlx"
-version = "0.2.6"
+version = "0.2.7"
 description = "Segment surgical tools in RGB endoscopy frames with FlexibleUNet and native MLX"
 readme = "README.md"
 requires-python = ">=3.13,<3.14"
@@ -37,7 +37,7 @@ keywords = [
   "monai",
 ]
 dependencies = [
-  "medmlx-core==0.2.6",
+  "medmlx-core>=0.2.6,<0.3",
   "mlx==0.32.4; platform_system == 'Darwin' and platform_machine == 'arm64'",
   "numpy>=2.0,<3",
   "Pillow>=13,<14",
@@ -45,7 +45,7 @@ dependencies = [
 
 [project.urls]
 Homepage = "https://medmlx.org"
-Documentation = "https://github.com/MedMLX/flexible-unet-mlx/blob/v0.2.6/README.md"
+Documentation = "https://github.com/MedMLX/flexible-unet-mlx/blob/v0.2.7/README.md"
 Repository = "https://github.com/MedMLX/flexible-unet-mlx"
 Issues = "https://github.com/MedMLX/flexible-unet-mlx/issues"
 Weights = "https://huggingface.co/MedMLX/flexible-unet-effnetb2-mlx"
