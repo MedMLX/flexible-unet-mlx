@@ -11,8 +11,6 @@ Segment surgical tools in RGB endoscopy frames with FlexibleUNet and native MLX.
 [![Hugging Face](https://img.shields.io/badge/%F0%9F%A4%97_Hugging_Face-weights-yellow)](https://huggingface.co/MedMLX/flexible-unet-effnetb2-mlx)
 [![MedMLX](https://img.shields.io/badge/MedMLX-runtime-A51C30)](https://github.com/MedMLX/medmlx)
 
-[Model weights](https://huggingface.co/MedMLX/flexible-unet-effnetb2-mlx) · [MedMLX](https://github.com/MedMLX/medmlx)
-
 <img src="https://raw.githubusercontent.com/MedMLX/flexible-unet-mlx/main/docs/example.jpg" alt="Endoscopy frame and the predicted surgical instrument mask with the reference outline" width="100%">
 
 <sub>Frame and reference outline from [Kvasir-Instrument](https://datasets.simula.no/kvasir-instrument/), for research and education.</sub>
