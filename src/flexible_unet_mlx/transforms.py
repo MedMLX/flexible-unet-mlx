@@ -107,9 +107,25 @@ def tool_mask(logits: Float32Array) -> npt.NDArray[np.bool_]:
         logits: Array of shape ``(2, n0, n1)``; channel 0 is background, 1 is tool.
 
     Returns:
-        Boolean array of shape ``(n0, n1)``. Ties go to class 0 (first maximum).
+        Boolean array of shape ``(n0, n1)``. Ties, including signed zeros, go to
+        class 0 (first maximum). NaN follows ``np.argmax``: a NaN background logit
+        selects class 0 and a NaN tool logit against a non-NaN background selects
+        class 1.
+
+    Raises:
+        ValueError: ``logits`` does not have exactly two channels.
     """
-    return np.argmax(logits, axis=0) == 1
+    if logits.ndim != 3 or logits.shape[0] != 2:
+        raise ValueError("tool_mask expects (2, n0, n1) logits")
+    background, tool = logits[0], logits[1]
+    # For two classes, argmax == 1 is "tool > background" with ties to class 0.
+    # This avoids the 8-byte/pixel intp argmax image; NaN is matched separately.
+    mask = np.greater(tool, background)
+    unordered = np.isnan(tool)
+    if unordered.any():
+        np.logical_and(unordered, ~np.isnan(background), out=unordered)
+        np.logical_or(mask, unordered, out=mask)
+    return mask
 
 
 def write_png(path: Path, mask: npt.NDArray[np.bool_]) -> None:
@@ -120,8 +136,10 @@ def write_png(path: Path, mask: npt.NDArray[np.bool_]) -> None:
     """
     from PIL import Image
 
-    pixels = (np.float32(255) * mask.astype(np.float32)).astype(np.uint8)
-    Image.fromarray(np.ascontiguousarray(pixels.T), mode="L").save(path, format="PNG")
+    # One transposed uint8 copy scaled in place; 0/1 * 255 is exact in uint8.
+    pixels = np.ascontiguousarray(mask.T, dtype=np.uint8)
+    pixels *= np.uint8(255)
+    Image.fromarray(pixels, mode="L").save(path, format="PNG")
 
 
 def _fma(
