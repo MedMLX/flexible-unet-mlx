@@ -100,6 +100,30 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
         np.testing.assert_array_equal(np.asarray(written), np.asarray(reference))
 
 
+def test_session_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> None:
+    """A prepared session reproduces one-shot masks across frame sizes, then rejects reuse."""
+    _, metadata = recording("runner")
+    weights = tmp_path / "flexibleunet.safetensors"
+    save_file(seeded_weights(metadata["weights_seed"]), weights)
+    frames = [_frame(tmp_path, case) for case in ("small", "wide", "small")]
+    with medmlx.prepare(weights_path=str(weights)) as session:
+        masks = [
+            session.run(image_path=str(frame), output_dir=str(tmp_path / f"session{index}"))
+            for index, frame in enumerate(frames)
+        ]
+    with pytest.raises(RuntimeError):
+        session.run(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
+    for index, (frame, result) in enumerate(zip(frames, masks, strict=True)):
+        single = run(
+            image_path=str(frame), weights_path=str(weights),
+            output_dir=str(tmp_path / f"single{index}"),
+        )
+        with Image.open(result["outputs"]["mask"]) as reused, Image.open(
+            single["outputs"]["mask"]
+        ) as independent:
+            np.testing.assert_array_equal(np.asarray(reused), np.asarray(independent))
+
+
 @pytest.mark.parametrize(
     ("problem", "error"),
     [("torch_weights", AssetNotReadyError), ("overwrite_not_bool", InvalidInputError),

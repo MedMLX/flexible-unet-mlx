@@ -46,6 +46,17 @@ Weights download from `MedMLX/flexible-unet-effnetb2-mlx` on first use; `medmlx 
 downloads them ahead of time. For local weights, pass a folder containing
 `flexibleunet.safetensors`, or a checkpoint file, as `weights_path`.
 
+To segment a sequence of frames with one loaded model, prepare a session. Each
+`session.run` call takes the same image, output and overwrite arguments as `run`:
+
+```python
+from flexible_unet_mlx.medmlx import prepare
+
+with prepare() as session:
+    for frame in ["frame1.jpg", "frame2.jpg"]:
+        session.run(image_path=frame, output_dir="out")
+```
+
 ### Inputs and outputs
 
 | Argument | Meaning |

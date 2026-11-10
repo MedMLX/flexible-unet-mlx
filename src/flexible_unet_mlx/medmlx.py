@@ -27,6 +27,7 @@ MODEL = {
     "label": "FlexibleUNet endoscopic tools",
     "task": "segmentation",
     "run": "flexible_unet_mlx.medmlx:run",
+    "cohort": "flexible_unet_mlx.medmlx:prepare",
     # Measured MLX peak for a 768x576 endoscopy frame; larger inputs need more.
     "peak_memory_gb": 0.3,
     "summary": "MONAI endoscopic_tool_segmentation: surgical tools in RGB endoscopy frames.",
@@ -74,6 +75,74 @@ def run(
         MissingDependencyError: Apple Silicon or the Metal GPU is unavailable.
         ModelExecutionError: The forward pass fails.
     """
+    image_file, mask_path = _destination(image_path, output_dir, overwrite)
+    weights = _resolve_weights(weights_path)
+    if not image_file.is_file():
+        raise InvalidInputError(f"image_path not found: {image_file}")
+    started = time.perf_counter()
+    frame = transforms.read_rgb(image_file)
+    network = _load_network(weights)
+    return _segment(network, weights_revision(weights.parent), frame, mask_path, started)
+
+
+class FrameSession:
+    """One loaded FlexibleUNet reused for serial frames until :meth:`close`.
+
+    Loading, checkpoint admission and graph compilation happen once; each
+    :meth:`run` call then has the one-shot :func:`run` contract for a single
+    frame. The session owns only the network: frames, logits and masks belong to
+    each call. ``weights_revision`` is read at preparation, and later edits to the
+    checkpoint file do not affect the loaded network. Per-frame
+    ``load_inputs_and_weights`` covers reading the frame only. Frames run one at
+    a time; MedMLX cohorts bound the sequence length.
+    """
+
+    def __init__(self, *, weights_path: str | None = None) -> None:
+        """Admit and load the checkpoint, raising like :func:`run`."""
+        weights = _resolve_weights(weights_path)
+        self._revision = weights_revision(weights.parent)
+        self._network: FlexibleUNet | None = _load_network(weights)
+
+    def run(self, *, image_path: str, output_dir: str, overwrite: bool = False) -> RunResult:
+        """Segment one frame with the session's network; see :func:`run`.
+
+        Raises:
+            RuntimeError: The session is closed.
+        """
+        network = self._network
+        if network is None:
+            raise RuntimeError("FlexibleUNet session is closed")
+        image_file, mask_path = _destination(image_path, output_dir, overwrite)
+        if not image_file.is_file():
+            raise InvalidInputError(f"image_path not found: {image_file}")
+        started = time.perf_counter()
+        frame = transforms.read_rgb(image_file)
+        return _segment(network, self._revision, frame, mask_path, started)
+
+    def close(self) -> None:
+        """Release the network; later :meth:`run` calls raise ``RuntimeError``."""
+        self._network = None
+
+    def __enter__(self) -> FrameSession:
+        """Return this session for a ``with`` block that closes it on exit."""
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        """Close the session."""
+        self.close()
+
+
+def prepare(*, weights_path: str | None = None) -> FrameSession:
+    """Load FlexibleUNet once for MedMLX's explicit cohort protocol or a frame loop.
+
+    ``weights_path`` has the meaning it has in :func:`run`. Close the returned
+    session, or use it as a context manager, to release the model.
+    """
+    return FrameSession(weights_path=weights_path)
+
+
+def _destination(image_path: str, output_dir: str, overwrite: bool) -> tuple[Path, Path]:
+    """Return the resolved image and mask paths after the preflight output checks."""
     if type(overwrite) is not bool:
         raise InvalidInputError("overwrite must be boolean")
     image_file = Path(image_path).expanduser().resolve()
@@ -83,18 +152,25 @@ def run(
         raise InvalidInputError(f"output_dir is not a directory: {output_root}")
     if mask_path.exists() and not overwrite:
         raise InvalidInputError(f"Output exists: {mask_path}; pass overwrite=true to replace it")
+    return image_file, mask_path
+
+
+def _resolve_weights(weights_path: str | None) -> Path:
+    """Return the admitted checkpoint file, downloading the default bundle when omitted."""
     bundle_dir = (
         weights_dir("flexible-unet")
         if weights_path is None else Path(weights_path).expanduser()
     )
     # Preserve explicit checkpoint-file callers and named cache symlinks.
     checkpoint = bundle_dir / "flexibleunet.safetensors" if bundle_dir.is_dir() else bundle_dir
-    weights = _weights_file(str(checkpoint))
-    if not image_file.is_file():
-        raise InvalidInputError(f"image_path not found: {image_file}")
-    started = time.perf_counter()
-    frame = transforms.read_rgb(image_file)
-    network = _load_network(weights)
+    return _weights_file(str(checkpoint))
+
+
+def _segment(
+    network: FlexibleUNet, revision: str | None, frame: FloatArray, mask_path: Path,
+    started: float,
+) -> RunResult:
+    """Predict, restore and publish one read frame; ``started`` precedes the frame read."""
     loaded = time.perf_counter()
     image = preprocess(frame)
     prepared = time.perf_counter()
@@ -108,7 +184,7 @@ def run(
     return {
         "outputs": {"mask": mask_path.as_posix()},
         "details": {
-            "weights_revision": weights_revision(weights.parent),
+            "weights_revision": revision,
             "bundle": BUNDLE,
             "labels": {str(value): name for value, name in LABELS.items()},
             "image_size": {"width": int(width), "height": int(height)},
@@ -220,4 +296,4 @@ def _write_atomic(path: Path, mask: BoolArray) -> None:
         Path(name).unlink(missing_ok=True)
 
 
-__all__ = ["MODEL", "run"]
+__all__ = ["MODEL", "FrameSession", "prepare", "run"]
