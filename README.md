@@ -23,7 +23,9 @@ Segment surgical tools in RGB endoscopy frames with FlexibleUNet and native MLX.
 | :--- | :--- |
 | RGB image | Tool mask at the original size |
 
-Weights: 46 MB download. Peak MLX memory: 0.27 GB for a 768×576 endoscopy frame.
+| Model | Weights download | Peak MLX memory | Measured on |
+| :--- | ---: | ---: | :--- |
+| `flexible-unet` | 46 MB | 0.27 GB | 768×576 endoscopy frame |
 
 ## Use with MedMLX
 
@@ -57,9 +59,9 @@ result = run(image_path="frame.jpg", output_dir="out")
 print(result["outputs"]["mask"])
 ```
 
-Weights download from `MedMLX/flexible-unet-effnetb2-mlx` on first use.
-Use `medmlx setup flexible-unet` to download ahead of time. For local weights, pass a folder containing `flexibleunet.safetensors` as `weights_path`.
-A checkpoint file is also accepted.
+Weights download from `MedMLX/flexible-unet-effnetb2-mlx` on first use; `medmlx setup flexible-unet`
+downloads them ahead of time. For local weights, pass a folder containing
+`flexibleunet.safetensors`, or a checkpoint file, as `weights_path`.
 
 ### Inputs and outputs
 
@@ -70,12 +72,20 @@ A checkpoint file is also accepted.
 | `weights_path` | Optional `.safetensors` file or a folder containing it |
 | `overwrite` | `False` by default; an existing mask is replaced only when `True` |
 
-This 2D model reads images, not NIfTI volumes. Following the bundle's `SaveImaged`
-layout, `frame.jpg` produces `out/frame/frame_trans.png`: an 8-bit grayscale mask at
-the original frame size, 255 for tools and 0 for background. `run` returns `{"outputs": {"mask": path}, "details": {...}}`, with run metadata in `details`.
-Invalid frames raise `InvalidInputError`;
-missing or mismatched weights raise `AssetNotReadyError`; inference failures raise
-`ModelExecutionError`; a missing native runtime raises `MissingDependencyError`.
+This 2D model reads images, not NIfTI volumes.
+
+- **Mask:** following the bundle's `SaveImaged` layout, `frame.jpg` produces
+  `out/frame/frame_trans.png`, an 8-bit grayscale mask at the original frame size: 255
+  for tools and 0 for background.
+- **Return value:** `{"outputs": {"mask": path}, "details": {...}}`, with run metadata in
+  `details`.
+
+| Error | Raised when |
+| :--- | :--- |
+| `InvalidInputError` | A frame is invalid |
+| `AssetNotReadyError` | Weights are missing or mismatched |
+| `ModelExecutionError` | Inference fails |
+| `MissingDependencyError` | The native runtime is missing |
 
 ### Python API
 
@@ -89,11 +99,13 @@ network = load_model(Path("flexibleunet.safetensors"))
 logits = forward_patch(network, np.zeros((1, 3, 736, 480), dtype=np.float32))
 ```
 
-`forward_patch` takes finite float32 `(B, 3, 736, 480)` frames, whose spatial axes are
-width and height as the bundle's reader returns them, and returns raw
-`(B, 2, 736, 480)` logits; channel 1 is the tool class. Preprocessing and
-postprocessing are the caller's. `FlexibleUNet(weights, mx=mx)` runs on MLX arrays
-directly. `load_model` checks names, shapes, dtypes and finite values. Inference requires Apple Silicon with Metal.
+- `forward_patch` takes finite float32 `(B, 3, 736, 480)` frames, whose spatial axes are
+  width and height as the bundle's reader returns them, and returns raw
+  `(B, 2, 736, 480)` logits; channel 1 is the tool class.
+- Preprocessing and postprocessing are the caller's. `FlexibleUNet(weights, mx=mx)` runs
+  on MLX arrays directly.
+- `load_model` checks names, shapes, dtypes and finite values.
+- Inference requires Apple Silicon with Metal.
 
 ## License
 
