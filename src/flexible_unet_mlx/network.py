@@ -21,10 +21,14 @@ class FlexibleUNet(ChannelLastGraph):
 
     ``weights`` maps upstream state-dict names to MLX arrays (batch-norm counters
     removed). :func:`flexible_unet_mlx.load_model` validates these arrays and returns
-    a constructed model. Convolution kernels keep the upstream ``(out, in, kH, kW)``
-    checkpoint layout. The first call materializes convolution layouts and BN scales
-    once, then compiles the fixed inference graph. Weights are immutable for the
-    lifetime of this model; construct a new instance when replacing them.
+    a constructed model. ``w`` keeps the upstream names, values and
+    ``(out, in, kH, kW)`` shapes. The first call stores each dense convolution
+    kernel once, in the contiguous ``(out, kH, kW, in)`` layout MLX convolutions
+    read, and replaces its ``w`` entry with a transposed view of that buffer; the
+    checkpoint-layout copy is released. Depthwise kernels stay in checkpoint layout
+    for the fused kernel. BN scales are cached once, then the fixed inference graph
+    is compiled. Weights are immutable for the lifetime of this model; construct a
+    new instance when replacing them.
     Activations are channel-last (NHWC) inside the graph. Batch norm uses the stored
     running statistics (inference only) with the upstream epsilon 1e-3.
 
@@ -61,17 +65,21 @@ class FlexibleUNet(ChannelLastGraph):
 
     def _prepare(self) -> Callable[[NativeArray], NativeArray]:
         """Materialize immutable model constants, then compile the inference graph."""
-        self._convolutions = {
-            name.removesuffix(".weight"): self.mx.contiguous(self.mx.transpose(w, (0, 2, 3, 1)))
-            for name, w in self.w.items() if name.endswith(".weight") and w.ndim == 4
-        }
+        weights = dict(self.w)
+        for name, w in self.w.items():
+            # The depthwise kernel reads checkpoint-layout weights directly.
+            if name.endswith(".weight") and w.ndim == 4 and "._depthwise_conv." not in name:
+                kernel = self.mx.contiguous(self.mx.transpose(w, (0, 2, 3, 1)))
+                self._convolutions[name.removesuffix(".weight")] = kernel
+                weights[name] = self.mx.transpose(kernel, (0, 3, 1, 2))
+        self.w = weights
         self._scales = {
             name.removesuffix(".running_var"): (
                 self.w[name.removesuffix(".running_var") + ".weight"] * self.mx.rsqrt(w + 1e-3)
             )
             for name, w in self.w.items() if name.endswith(".running_var")
         }
-        self.mx.eval(self._convolutions, self._scales)
+        self.mx.eval(self._convolutions, self._scales, weights)
         return self.mx.compile(self._forward)
 
     def conv(

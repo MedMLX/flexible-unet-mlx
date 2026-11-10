@@ -109,6 +109,14 @@ class NativeRuntime(MlxRuntime, Protocol):
         """Create an array filled with the specified scalar."""
         ...
 
+    def isfinite(self, a: array, /) -> array:
+        """Return elementwise finiteness."""
+        ...
+
+    def all(self, a: array, /) -> array:
+        """Reduce to a scalar that is true when every element is true."""
+        ...
+
 
 class ImageSize(TypedDict):
     """Original frame size in pixels."""

@@ -4,26 +4,29 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from medmlx_core.checkpoints import HostArray
 from medmlx_core.errors import InvalidInputError
 from medmlx_core.runtime import import_mlx
-from medmlx_core.typing import ArrayFactory
 
 from flexible_unet_mlx._typing import NativeRuntime
 from flexible_unet_mlx.network import FlexibleUNet
 from flexible_unet_mlx.runtime import require_apple_silicon
 from flexible_unet_mlx.specification import specification
 
+if TYPE_CHECKING:
+    from mlx.core import array as NativeArray
+
 MODEL_ID = "endoscopic_tool_segmentation"
 
 
-def _validate(state: Mapping[str, HostArray]) -> dict[str, HostArray]:
+def _validate(state: Mapping[str, NativeArray], mx: NativeRuntime) -> dict[str, NativeArray]:
     """Check names, shapes, dtypes and finiteness against ``specification.json``.
 
-    Training-only BatchNorm counters are not part of the native checkpoint.
+    Checks run on the loaded MLX arrays, so each tensor is materialized once from
+    the file and becomes the model weight without a host copy. Training-only
+    BatchNorm counters are not part of the native checkpoint.
     """
     expected = {
         key: value
@@ -32,16 +35,18 @@ def _validate(state: Mapping[str, HostArray]) -> dict[str, HostArray]:
     }
     if set(state) != set(expected):
         raise InvalidInputError(f"{MODEL_ID} checkpoint names differ from the pinned source graph")
-    arrays: dict[str, HostArray] = {}
+    dtypes = {"float32": mx.float32}
     for name, spec in expected.items():
         value = state[name]
-        if (
-            list(value.shape) != spec["shape"]
-            or str(value.dtype) != spec["dtype"]
-            or not np.isfinite(value).all()
-        ):
+        if list(value.shape) != spec["shape"] or value.dtype != dtypes.get(spec["dtype"]):
             raise InvalidInputError(f"Invalid {MODEL_ID} checkpoint parameter: {name}")
-        arrays[name] = np.ascontiguousarray(value)
+    arrays = {name: state[name] for name in expected}
+    # One evaluation loads every tensor and its finiteness flag together.
+    finite = mx.stack([mx.all(mx.isfinite(value)) for value in arrays.values()])
+    mx.eval(arrays, finite)
+    for name, ok in zip(arrays, np.asarray(finite).tolist(), strict=True):
+        if not ok:
+            raise InvalidInputError(f"Invalid {MODEL_ID} checkpoint parameter: {name}")
     return arrays
 
 
@@ -63,11 +68,4 @@ def load_model(weights_path: Path) -> FlexibleUNet:
         raise InvalidInputError("Native FlexibleUNet weights must use the .safetensors suffix")
     require_apple_silicon()
     mx = cast(NativeRuntime, import_mlx())
-    payload = mx.load(str(weights_path), format="safetensors")
-    arrays = _validate(
-        {name: cast(HostArray, np.asarray(value)) for name, value in payload.items()},
-    )
-    array = cast(ArrayFactory, mx.array)
-    weights = {name: array(value) for name, value in arrays.items()}
-    mx.eval(weights)
-    return FlexibleUNet(weights, mx=mx)
+    return FlexibleUNet(_validate(mx.load(str(weights_path), format="safetensors"), mx), mx=mx)
