@@ -1,4 +1,4 @@
-"""Read fixed Mac upstream recordings; generation scripts stay outside tests."""
+"""Read local Mac upstream recordings generated from a chest X-ray."""
 
 from __future__ import annotations
 
@@ -13,7 +13,7 @@ from flexible_unet_mlx import specification
 from flexible_unet_mlx._typing import FloatArray, HostArray
 
 ROOT = Path(__file__).resolve().parents[1]
-FIXTURES = ROOT / "tests/fixtures/darwin-arm64"
+FIXTURES = ROOT / "work/real-reference"
 
 
 def recording(name: str) -> tuple[dict[str, HostArray], RecordingMetadata]:

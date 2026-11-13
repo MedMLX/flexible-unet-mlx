@@ -1,7 +1,7 @@
 """Bundle transform parity with MONAI, an end-to-end run and argument rejection.
 
 The parity fixtures were recorded outside this repository by running the pinned
-bundle's upstream MONAI 1.4.0 transforms on seeded frames.
+bundle's upstream MONAI 1.4.0 transforms on chest X-ray frames.
 """
 
 from __future__ import annotations
@@ -34,9 +34,10 @@ def _logits(shape: tuple[int, ...], salt: int) -> FloatArray:
 
 def _frame(tmp_path: Path, case: str) -> Path:
     """Write a recorded JPEG frame into the test directory."""
-    arrays, _ = recording(case)
     path = tmp_path / f"{case}.jpg"
-    path.write_bytes(arrays["jpeg"].tobytes())
+    path.write_bytes(
+        (Path(__file__).resolve().parents[1] / "work/real-reference" / f"{case}.jpg").read_bytes()
+    )
     return path
 
 
@@ -93,9 +94,10 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     save_file(seeded_weights(metadata["weights_seed"]), blob)
     (folder / "flexibleunet.safetensors").symlink_to(blob)
     result = run(image_path=str(frame), weights_path=str(folder), output_dir=str(tmp_path / "out"))
-    with Image.open(result["outputs"]["mask"]) as written, Image.open(
-        io.BytesIO(arrays["png"].tobytes())
-    ) as reference:
+    with (
+        Image.open(result["outputs"]["mask"]) as written,
+        Image.open(io.BytesIO(arrays["png"].tobytes())) as reference,
+    ):
         assert written.mode == reference.mode == "L"
         np.testing.assert_array_equal(np.asarray(written), np.asarray(reference))
 
@@ -115,22 +117,30 @@ def test_session_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> 
         session.run(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
     for index, (frame, result) in enumerate(zip(frames, masks, strict=True)):
         single = run(
-            image_path=str(frame), weights_path=str(weights),
+            image_path=str(frame),
+            weights_path=str(weights),
             output_dir=str(tmp_path / f"single{index}"),
         )
-        with Image.open(result["outputs"]["mask"]) as reused, Image.open(
-            single["outputs"]["mask"]
-        ) as independent:
+        with (
+            Image.open(result["outputs"]["mask"]) as reused,
+            Image.open(single["outputs"]["mask"]) as independent,
+        ):
             np.testing.assert_array_equal(np.asarray(reused), np.asarray(independent))
 
 
 @pytest.mark.parametrize(
     ("problem", "error"),
-    [("torch_weights", AssetNotReadyError), ("overwrite_not_bool", InvalidInputError),
-     ("existing_output", InvalidInputError)],
+    [
+        ("torch_weights", AssetNotReadyError),
+        ("overwrite_not_bool", InvalidInputError),
+        ("existing_output", InvalidInputError),
+    ],
 )
 def test_run_rejects_invalid_arguments_before_download(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, problem: str, error: type[Exception],
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    problem: str,
+    error: type[Exception],
 ) -> None:
     """Reject each invalid argument category before any weights are downloaded."""
 
@@ -151,6 +161,8 @@ def test_run_rejects_invalid_arguments_before_download(
         (output / "small/small_trans.png").write_bytes(b"existing output")
     with pytest.raises(error):
         run(
-            image_path=str(image), weights_path=weights, output_dir=str(output),
+            image_path=str(image),
+            weights_path=weights,
+            output_dir=str(output),
             overwrite=overwrite,
         )

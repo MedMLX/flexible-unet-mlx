@@ -90,9 +90,7 @@ def test_seeded_network_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> N
     save_file(seeded_weights(metadata["weights_seed"]), destination)
     from flexible_unet_mlx import medmlx, transforms
 
-    frame, _ = recording("small")
-    image_path = tmp_path / "small.jpg"
-    image_path.write_bytes(frame["jpeg"].tobytes())
+    image_path = Path(__file__).resolve().parents[1] / "work/real-reference/small.jpg"
     values = medmlx.preprocess(transforms.read_rgb(image_path))
     actual = forward_patch(load_model(destination), values)
     expected = cast(FloatArray, arrays["logits"])
