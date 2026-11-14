@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
 
 import numpy as np
 import numpy.typing as npt
-from medmlx_core.outputs import Artifact
+from medmlx_core.outputs import RunResult as _RunResult
 from medmlx_core.typing import MlxRuntime
 
 if TYPE_CHECKING:
@@ -156,12 +156,7 @@ class RunDetails(TypedDict):
     requires_human_review: bool
 
 
-class RunResult(TypedDict):
-    """Return value of ``medmlx.run``; ``outputs["mask"]`` is the absolute POSIX PNG path.
-
-    ``artifacts["mask"]`` describes the mask file (binary mask, labels, source frame grid).
-    """
-
-    outputs: dict[str, str]
-    artifacts: dict[str, Artifact]
-    details: RunDetails
+# Return value of ``medmlx.run``; ``outputs["mask"]`` is the absolute POSIX PNG path.
+#
+# ``artifacts["mask"]`` describes the mask file (binary mask, labels, source frame grid).
+type RunResult = _RunResult[RunDetails]
