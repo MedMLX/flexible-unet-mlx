@@ -15,6 +15,7 @@ if TYPE_CHECKING:
 
 import numpy as np
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.outputs import artifact
 from medmlx_core.weights import weights_dir, weights_revision
 
 from flexible_unet_mlx import transforms
@@ -37,9 +38,9 @@ MODEL = {
 
 def run(
     *,
-    image_path: str,
-    weights_path: str | None = None,
-    output_dir: str,
+    image_path: str | Path,
+    weights_path: str | Path | None = None,
+    output_dir: str | Path,
     overwrite: bool = False,
 ) -> RunResult:
     """Segment surgical tools in one RGB endoscopy frame and write the mask PNG.
@@ -59,8 +60,11 @@ def run(
         overwrite: Replace an existing mask. Must be exactly ``True`` or ``False``.
 
     Returns:
-        ``{"outputs": {"mask": <absolute POSIX path>}, "details": {...}}`` with
-        JSON-serializable values (see ``RunDetails``). The mask is
+        ``{"outputs": {"mask": <absolute POSIX path>}, "artifacts": {"mask": ...},
+        "details": {...}}`` with JSON-serializable values (see ``RunDetails``). The
+        ``mask`` artifact is a ``binary_mask`` in ``pixel`` space on the
+        ``image_path`` frame's pixel grid, with labels 0 background and 255 tools.
+        The mask is
         ``<output_dir>/<stem>/<stem>_trans.png`` where ``<stem>`` is the image file
         name after resolving symlinks and removing its suffix: 8-bit grayscale,
         255 for tools and 0 elsewhere, following the bundle's ``SaveImaged`` layout.
@@ -77,8 +81,6 @@ def run(
     """
     image_file, mask_path = _destination(image_path, output_dir, overwrite)
     weights = _resolve_weights(weights_path)
-    if not image_file.is_file():
-        raise InvalidInputError(f"image_path not found: {image_file}")
     started = time.perf_counter()
     frame = transforms.read_rgb(image_file)
     network = _load_network(weights)
@@ -97,13 +99,15 @@ class FrameSession:
     a time; MedMLX cohorts bound the sequence length.
     """
 
-    def __init__(self, *, weights_path: str | None = None) -> None:
+    def __init__(self, *, weights_path: str | Path | None = None) -> None:
         """Admit and load the checkpoint, raising like :func:`run`."""
         weights = _resolve_weights(weights_path)
         self._revision = weights_revision(weights.parent)
         self._network: FlexibleUNet | None = _load_network(weights)
 
-    def run(self, *, image_path: str, output_dir: str, overwrite: bool = False) -> RunResult:
+    def run(
+        self, *, image_path: str | Path, output_dir: str | Path, overwrite: bool = False
+    ) -> RunResult:
         """Segment one frame with the session's network; see :func:`run`.
 
         Raises:
@@ -113,8 +117,6 @@ class FrameSession:
         if network is None:
             raise RuntimeError("FlexibleUNet session is closed")
         image_file, mask_path = _destination(image_path, output_dir, overwrite)
-        if not image_file.is_file():
-            raise InvalidInputError(f"image_path not found: {image_file}")
         started = time.perf_counter()
         frame = transforms.read_rgb(image_file)
         return _segment(network, self._revision, frame, mask_path, started)
@@ -132,7 +134,7 @@ class FrameSession:
         self.close()
 
 
-def prepare(*, weights_path: str | None = None) -> FrameSession:
+def prepare(*, weights_path: str | Path | None = None) -> FrameSession:
     """Load FlexibleUNet once for MedMLX's explicit cohort protocol or a frame loop.
 
     ``weights_path`` has the meaning it has in :func:`run`. Close the returned
@@ -141,11 +143,15 @@ def prepare(*, weights_path: str | None = None) -> FrameSession:
     return FrameSession(weights_path=weights_path)
 
 
-def _destination(image_path: str, output_dir: str, overwrite: bool) -> tuple[Path, Path]:
-    """Return the resolved image and mask paths after the preflight output checks."""
+def _destination(
+    image_path: str | Path, output_dir: str | Path, overwrite: bool
+) -> tuple[Path, Path]:
+    """Return the resolved image and mask paths after the preflight input and output checks."""
     if type(overwrite) is not bool:
         raise InvalidInputError("overwrite must be boolean")
     image_file = Path(image_path).expanduser().resolve()
+    if not image_file.is_file():
+        raise InvalidInputError(f"image_path not found: {image_file}")
     output_root = Path(output_dir).expanduser().resolve()
     mask_path = output_root / image_file.stem / f"{image_file.stem}_trans.png"
     if output_root.exists() and not output_root.is_dir():
@@ -155,7 +161,7 @@ def _destination(image_path: str, output_dir: str, overwrite: bool) -> tuple[Pat
     return image_file, mask_path
 
 
-def _resolve_weights(weights_path: str | None) -> Path:
+def _resolve_weights(weights_path: str | Path | None) -> Path:
     """Return the admitted checkpoint file, downloading the default bundle when omitted."""
     bundle_dir = (
         weights_dir("flexible-unet")
@@ -183,6 +189,14 @@ def _segment(
     width, height = frame.shape[1:]
     return {
         "outputs": {"mask": mask_path.as_posix()},
+        "artifacts": {
+            "mask": artifact(
+                kind="binary_mask",
+                coordinate_space="pixel",
+                grid_of="image_path",
+                labels=[{"value": value, "name": name} for value, name in LABELS.items()],
+            )
+        },
         "details": {
             "weights_revision": revision,
             "bundle": BUNDLE,

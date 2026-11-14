@@ -71,8 +71,9 @@ This 2D model reads images, not NIfTI volumes.
 - **Mask:** following the bundle's `SaveImaged` layout, `frame.jpg` produces
   `out/frame/frame_trans.png`, an 8-bit grayscale mask at the original frame size: 255
   for tools and 0 for background.
-- **Return value:** `{"outputs": {"mask": path}, "details": {...}}`, with run metadata in
-  `details`.
+- **Return value:** `{"outputs": {"mask": path}, "artifacts": {"mask": ...}, "details": {...}}`:
+  the `mask` artifact names the labels and the frame grid it is on, and `details` holds run
+  metadata.
 
 | Error | Raised when |
 | :--- | :--- |

@@ -15,6 +15,7 @@ import pytest
 import safetensors.numpy as safetensors
 from _contracts import FrameMetadata, SafetensorsApi
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError
+from medmlx_core.outputs import validate_outputs
 from PIL import Image
 from reference_data import recorded_values, recording, seeded_weights
 
@@ -100,6 +101,14 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     ):
         assert written.mode == reference.mode == "L"
         np.testing.assert_array_equal(np.asarray(written), np.asarray(reference))
+    _, artifacts = validate_outputs(result)
+    assert artifacts["mask"]["kind"] == "binary_mask"
+    assert artifacts["mask"].get("coordinate_space") == "pixel"
+    assert artifacts["mask"].get("grid_of") == "image_path"
+    assert artifacts["mask"].get("labels") == [
+        {"value": 0, "name": "background"},
+        {"value": 255, "name": "tools"},
+    ]
 
 
 def test_session_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> None:
@@ -134,6 +143,7 @@ def test_session_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> 
         ("torch_weights", AssetNotReadyError),
         ("overwrite_not_bool", InvalidInputError),
         ("existing_output", InvalidInputError),
+        ("absent_image", InvalidInputError),
     ],
 )
 def test_run_rejects_invalid_arguments_before_download(
@@ -156,6 +166,8 @@ def test_run_rejects_invalid_arguments_before_download(
         weights = str(tmp_path / "model.pt")
     elif problem == "overwrite_not_bool":
         overwrite = cast(bool, "true")
+    elif problem == "absent_image":
+        image = tmp_path / "absent.png"
     else:
         (output / "small").mkdir(parents=True)
         (output / "small/small_trans.png").write_bytes(b"existing output")
