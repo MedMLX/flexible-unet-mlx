@@ -16,7 +16,7 @@ from reference_data import recording, seeded_weights
 
 from flexible_unet_mlx import (
     forward_patch,
-    load_model,
+    load_network,
     specification,
 )
 from flexible_unet_mlx._typing import FloatArray, NativeRuntime
@@ -39,7 +39,7 @@ def test_converted_model_matches_independent_source(tmp_path: Path, mx: NativeRu
     assert receipt["schema_version"] == 1
     assert receipt["upstream"] == spec["upstream"]
     assert receipt["bundle_revision"] == spec["bundle"]["revision"]
-    network = load_model(Path(checkpoint))
+    network = load_network(Path(checkpoint))
     values = np.load(input_path, allow_pickle=False)
     assert values.shape == (1, 3, 736, 480)
     actual = forward_patch(network, values)
@@ -59,7 +59,7 @@ def converted_weights(
     destination = tmp_path_factory.mktemp("converted") / "model.safetensors"
     _, metadata = recording("network")
     save_file(seeded_weights(metadata["weights_seed"]), destination)
-    load_model(destination)
+    load_network(destination)
     return mx.load(str(destination), format="safetensors")
 
 
@@ -80,7 +80,7 @@ def test_converted_checkpoint_admission(
     destination = tmp_path / "invalid.safetensors"
     mx.save_safetensors(str(destination), weights)
     with pytest.raises(InvalidInputError):
-        load_model(destination)
+        load_network(destination)
 
 
 def test_seeded_network_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
@@ -92,7 +92,7 @@ def test_seeded_network_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> N
 
     image_path = Path(__file__).resolve().parents[1] / "work/real-reference/small.jpg"
     values = medmlx.preprocess(transforms.read_rgb(image_path))
-    actual = forward_patch(load_model(destination), values)
+    actual = forward_patch(load_network(destination), values)
     expected = cast(FloatArray, arrays["logits"])
     assert actual.dtype == np.float32 and np.isfinite(actual).all()
     # FP32 reductions differ between Torch and MLX, so compare within a tolerance.

@@ -36,25 +36,25 @@ uv pip install "flexible-unet-mlx>=0.2.7"
 ## Run
 
 ```python
-from flexible_unet_mlx.medmlx import run
+from flexible_unet_mlx import segment
 
-result = run(image_path="frame.jpg", output_dir="out")
+result = segment(image_path="frame.jpg", output_dir="out")
 print(result["outputs"]["mask"])
 ```
 
 Weights download from `MedMLX/flexible-unet-effnetb2-mlx` on first use; `medmlx setup flexible-unet`
-downloads them ahead of time. For local weights, pass a folder containing
-`flexibleunet.safetensors`, or a checkpoint file, as `weights_path`.
+downloads them ahead of time. For local weights, pass the folder containing
+`flexibleunet.safetensors` as `weights_path`.
 
-To segment a sequence of frames with one loaded model, prepare a session. Each
-`session.run` call takes the same image, output and overwrite arguments as `run`:
+To segment a sequence of frames with one loaded network, use `load_model`. Each
+`model.segment` call takes the same image, output and overwrite arguments as `segment`:
 
 ```python
-from flexible_unet_mlx.medmlx import prepare
+from flexible_unet_mlx import load_model
 
-with prepare() as session:
-    for frame in ["frame1.jpg", "frame2.jpg"]:
-        session.run(image_path=frame, output_dir="out")
+with load_model() as model:
+    for frame in ["frame1", "frame2"]:
+        model.segment(image_path=f"{frame}.jpg", output_dir=f"out/{frame}")
 ```
 
 ### Inputs and outputs
@@ -62,14 +62,13 @@ with prepare() as session:
 | Argument | Meaning |
 | --- | --- |
 | `image_path` | One RGB image Pillow can read; the bundle used JPEG |
-| `output_dir` | Output root, created if missing |
-| `weights_path` | Optional `.safetensors` file or a folder containing it |
+| `output_dir` | Directory for `mask.png`, created if missing |
+| `weights_path` | Optional folder containing `flexibleunet.safetensors` |
 | `overwrite` | `False` by default; an existing mask is replaced only when `True` |
 
 This 2D model reads images, not NIfTI volumes.
 
-- **Mask:** following the bundle's `SaveImaged` layout, `frame.jpg` produces
-  `out/frame/frame_trans.png`, an 8-bit grayscale mask at the original frame size: 255
+- **Mask:** `out/mask.png`, an 8-bit grayscale mask at the original frame size: 255
   for tools and 0 for background.
 - **Return value:** `{"outputs": {"mask": path}, "artifacts": {"mask": ...}, "details": {...}}`:
   the `mask` artifact names the labels and the frame grid it is on, and `details` holds run
@@ -88,9 +87,9 @@ This 2D model reads images, not NIfTI volumes.
 from pathlib import Path
 
 import numpy as np
-from flexible_unet_mlx import forward_patch, load_model
+from flexible_unet_mlx import forward_patch, load_network
 
-network = load_model(Path("flexibleunet.safetensors"))
+network = load_network(Path("flexibleunet.safetensors"))
 logits = forward_patch(network, np.zeros((1, 3, 736, 480), dtype=np.float32))
 ```
 
@@ -99,7 +98,7 @@ logits = forward_patch(network, np.zeros((1, 3, 736, 480), dtype=np.float32))
   `(B, 2, 736, 480)` logits; channel 1 is the tool class.
 - Preprocessing and postprocessing are the caller's. `FlexibleUNet(weights, mx=mx)` runs
   on MLX arrays directly.
-- `load_model` checks names, shapes, dtypes and finite values.
+- `load_network` checks names, shapes, dtypes and finite values.
 - Inference requires Apple Silicon with Metal.
 
 ## Use with MedMLX

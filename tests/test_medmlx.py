@@ -10,6 +10,7 @@ import io
 from pathlib import Path
 from typing import cast
 
+import medmlx_core.weights as core_weights
 import numpy as np
 import pytest
 import safetensors.numpy as safetensors
@@ -21,7 +22,7 @@ from reference_data import recorded_values, recording, seeded_weights
 
 from flexible_unet_mlx import medmlx, transforms
 from flexible_unet_mlx._typing import FloatArray, NativeRuntime
-from flexible_unet_mlx.medmlx import run
+from flexible_unet_mlx.medmlx import load_model, segment
 
 save_file = cast(SafetensorsApi, safetensors).save_file
 
@@ -94,7 +95,9 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     blob = tmp_path / "cached-blob"
     save_file(seeded_weights(metadata["weights_seed"]), blob)
     (folder / "flexibleunet.safetensors").symlink_to(blob)
-    result = run(image_path=str(frame), weights_path=str(folder), output_dir=str(tmp_path / "out"))
+    result = segment(
+        image_path=str(frame), weights_path=str(folder), output_dir=str(tmp_path / "out")
+    )
     with (
         Image.open(result["outputs"]["mask"]) as written,
         Image.open(io.BytesIO(arrays["png"].tobytes())) as reference,
@@ -111,23 +114,23 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     ]
 
 
-def test_session_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> None:
-    """A prepared session reproduces one-shot masks across frame sizes, then rejects reuse."""
+def test_loaded_model_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> None:
+    """A loaded model reproduces one-shot masks across frame sizes, then rejects reuse."""
     _, metadata = recording("runner")
     weights = tmp_path / "flexibleunet.safetensors"
     save_file(seeded_weights(metadata["weights_seed"]), weights)
     frames = [_frame(tmp_path, case) for case in ("small", "wide", "small")]
-    with medmlx.prepare(weights_path=str(weights)) as session:
+    with load_model(weights_path=str(tmp_path)) as model:
         masks = [
-            session.run(image_path=str(frame), output_dir=str(tmp_path / f"session{index}"))
+            model.segment(image_path=str(frame), output_dir=str(tmp_path / f"session{index}"))
             for index, frame in enumerate(frames)
         ]
     with pytest.raises(RuntimeError):
-        session.run(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
+        model.segment(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
     for index, (frame, result) in enumerate(zip(frames, masks, strict=True)):
-        single = run(
+        single = segment(
             image_path=str(frame),
-            weights_path=str(weights),
+            weights_path=str(tmp_path),
             output_dir=str(tmp_path / f"single{index}"),
         )
         with (
@@ -158,7 +161,7 @@ def test_run_rejects_invalid_arguments_before_download(
         """Fail the test if the runner reaches the weights download."""
         raise AssertionError(f"downloaded {model_id}")
 
-    monkeypatch.setattr(medmlx, "weights_dir", no_download)
+    monkeypatch.setattr(core_weights, "weights_dir", no_download)
     image, output = _frame(tmp_path, "small"), tmp_path / "out"
     weights, overwrite = None, False
     if problem == "torch_weights":
@@ -169,10 +172,10 @@ def test_run_rejects_invalid_arguments_before_download(
     elif problem == "absent_image":
         image = tmp_path / "absent.png"
     else:
-        (output / "small").mkdir(parents=True)
-        (output / "small/small_trans.png").write_bytes(b"existing output")
+        output.mkdir()
+        (output / medmlx.OUTPUT_NAME).write_bytes(b"existing output")
     with pytest.raises(error):
-        run(
+        segment(
             image_path=str(image),
             weights_path=weights,
             output_dir=str(output),

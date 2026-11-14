@@ -50,7 +50,7 @@ def _validate(state: Mapping[str, NativeArray], mx: NativeRuntime) -> dict[str, 
     return arrays
 
 
-def load_model(weights_path: Path) -> FlexibleUNet:
+def load_network(weights_path: Path) -> FlexibleUNet:
     """Load native ``.safetensors`` weights into a :class:`FlexibleUNet`.
 
     For the published bundle, pass its ``flexibleunet.safetensors`` file path.

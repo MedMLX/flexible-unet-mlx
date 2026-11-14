@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import os
-import tempfile
 import time
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -15,8 +13,9 @@ if TYPE_CHECKING:
 
 import numpy as np
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.files import input_file, output_targets, publish
 from medmlx_core.outputs import artifact
-from medmlx_core.weights import weights_dir, weights_revision
+from medmlx_core.weights import model_folder, weights_revision
 
 from flexible_unet_mlx import transforms
 
@@ -27,8 +26,8 @@ MODEL = {
     "id": "flexible-unet",
     "label": "FlexibleUNet endoscopic tools",
     "task": "segmentation",
-    "run": "flexible_unet_mlx.medmlx:run",
-    "cohort": "flexible_unet_mlx.medmlx:prepare",
+    "run": "flexible_unet_mlx.medmlx:segment",
+    "cohort": "flexible_unet_mlx.medmlx:load_model",
     # Measured MLX peak for a 768x576 endoscopy frame; larger inputs need more.
     "peak_memory_gb": 0.3,
     "summary": "MONAI endoscopic_tool_segmentation: surgical tools in RGB endoscopy frames.",
@@ -36,7 +35,11 @@ MODEL = {
 }
 
 
-def run(
+#: The mask's file name inside ``output_dir``.
+OUTPUT_NAME = "mask.png"
+
+
+def segment(
     *,
     image_path: str | Path,
     weights_path: str | Path | None = None,
@@ -48,15 +51,15 @@ def run(
     The frame is resized to the network's fixed input size, run through one FP32
     forward pass, and the logits are resized back to the frame size, so the mask has
     the frame's own width and height. This is research software: the details always
-    carry ``requires_human_review: True``.
+    carry ``requires_human_review: True``. To segment several frames with one loaded
+    network, use :func:`load_model`.
 
     Args:
         image_path: RGB image PIL can read (the bundle used JPEG frames). Grayscale
             and alpha images are rejected.
         weights_path: Optional model folder containing ``flexibleunet.safetensors``.
             Omit to download and reuse ``MedMLX/flexible-unet-effnetb2-mlx`` automatically.
-            Explicit native ``.safetensors`` checkpoint paths are also accepted.
-        output_dir: Output root. It is created when missing, after inference succeeds.
+        output_dir: Directory for ``mask.png``, created when the mask is written.
         overwrite: Replace an existing mask. Must be exactly ``True`` or ``False``.
 
     Returns:
@@ -64,112 +67,91 @@ def run(
         "details": {...}}`` with JSON-serializable values (see ``RunDetails``). The
         ``mask`` artifact is a ``binary_mask`` in ``pixel`` space on the
         ``image_path`` frame's pixel grid, with labels 0 background and 255 tools.
-        The mask is
-        ``<output_dir>/<stem>/<stem>_trans.png`` where ``<stem>`` is the image file
-        name after resolving symlinks and removing its suffix: 8-bit grayscale,
-        255 for tools and 0 elsewhere, following the bundle's ``SaveImaged`` layout.
-        Written atomically; the overwrite check is preflight and is not race-proof.
+        The mask is ``<output_dir>/mask.png``: 8-bit grayscale, 255 for tools and 0
+        elsewhere, as the bundle's ``SaveImaged`` writes it. Written atomically; the
+        overwrite check is preflight and is not race-proof.
 
     Raises:
         InvalidInputError: ``overwrite`` is not a bool, ``output_dir`` is a file, the
             mask exists and ``overwrite`` is false, or the image is missing, unreadable
             or not RGB.
-        AssetNotReadyError: The weights file is missing, is not ``.safetensors``, or
-            does not match the pinned graph.
+        AssetNotReadyError: ``weights_path`` is not a folder, or its
+            ``flexibleunet.safetensors`` is missing or does not match the pinned graph.
         MissingDependencyError: Apple Silicon or the Metal GPU is unavailable.
         ModelExecutionError: The forward pass fails.
     """
-    image_file, mask_path = _destination(image_path, output_dir, overwrite)
-    weights = _resolve_weights(weights_path)
-    started = time.perf_counter()
-    frame = transforms.read_rgb(image_file)
-    network = _load_network(weights)
-    return _segment(network, weights_revision(weights.parent), frame, mask_path, started)
+    _destination(image_path, output_dir, overwrite)
+    with load_model(weights_path=weights_path) as model:
+        return model.segment(image_path=image_path, output_dir=output_dir, overwrite=overwrite)
 
 
-class FrameSession:
+class FlexibleUNetModel:
     """One loaded FlexibleUNet reused for serial frames until :meth:`close`.
 
     Loading, checkpoint admission and graph compilation happen once; each
-    :meth:`run` call then has the one-shot :func:`run` contract for a single
-    frame. The session owns only the network: frames, logits and masks belong to
-    each call. ``weights_revision`` is read at preparation, and later edits to the
+    :meth:`segment` call then has the one-shot :func:`segment` contract for a
+    single frame. The model owns only the network: frames, logits and masks belong
+    to each call. ``weights_revision`` is read at loading, and later edits to the
     checkpoint file do not affect the loaded network. Per-frame
     ``load_inputs_and_weights`` covers reading the frame only. Frames run one at
     a time; MedMLX cohorts bound the sequence length.
     """
 
     def __init__(self, *, weights_path: str | Path | None = None) -> None:
-        """Admit and load the checkpoint, raising like :func:`run`."""
-        weights = _resolve_weights(weights_path)
+        """Admit and load the checkpoint, raising like :func:`segment`."""
+        weights = _weights_file(
+            model_folder("flexible-unet", weights_path) / "flexibleunet.safetensors"
+        )
         self._revision = weights_revision(weights.parent)
         self._network: FlexibleUNet | None = _load_network(weights)
 
-    def run(
+    def segment(
         self, *, image_path: str | Path, output_dir: str | Path, overwrite: bool = False
     ) -> RunResult:
-        """Segment one frame with the session's network; see :func:`run`.
+        """Segment one frame with the loaded network; see :func:`segment`.
 
         Raises:
-            RuntimeError: The session is closed.
+            RuntimeError: The model is closed.
         """
         network = self._network
         if network is None:
-            raise RuntimeError("FlexibleUNet session is closed")
+            raise RuntimeError("FlexibleUNet model is closed")
         image_file, mask_path = _destination(image_path, output_dir, overwrite)
         started = time.perf_counter()
         frame = transforms.read_rgb(image_file)
         return _segment(network, self._revision, frame, mask_path, started)
 
     def close(self) -> None:
-        """Release the network; later :meth:`run` calls raise ``RuntimeError``."""
+        """Release the network; later :meth:`segment` calls raise ``RuntimeError``."""
         self._network = None
 
-    def __enter__(self) -> FrameSession:
-        """Return this session for a ``with`` block that closes it on exit."""
+    def __enter__(self) -> FlexibleUNetModel:
+        """Return this model for a ``with`` block that closes it on exit."""
         return self
 
     def __exit__(self, *args: object) -> None:
-        """Close the session."""
+        """Close the model."""
         self.close()
 
 
-def prepare(*, weights_path: str | Path | None = None) -> FrameSession:
-    """Load FlexibleUNet once for MedMLX's explicit cohort protocol or a frame loop.
+def load_model(*, weights_path: str | Path | None = None) -> FlexibleUNetModel:
+    """Load FlexibleUNet once to segment several frames, or for a MedMLX cohort.
 
-    ``weights_path`` has the meaning it has in :func:`run`. Close the returned
-    session, or use it as a context manager, to release the model.
+    ``weights_path`` has the meaning it has in :func:`segment`. Close the returned
+    model, or use it as a context manager, to release it.
     """
-    return FrameSession(weights_path=weights_path)
+    return FlexibleUNetModel(weights_path=weights_path)
 
 
 def _destination(
     image_path: str | Path, output_dir: str | Path, overwrite: bool
 ) -> tuple[Path, Path]:
-    """Return the resolved image and mask paths after the preflight input and output checks."""
-    if type(overwrite) is not bool:
-        raise InvalidInputError("overwrite must be boolean")
-    image_file = Path(image_path).expanduser().resolve()
-    if not image_file.is_file():
-        raise InvalidInputError(f"image_path not found: {image_file}")
-    output_root = Path(output_dir).expanduser().resolve()
-    mask_path = output_root / image_file.stem / f"{image_file.stem}_trans.png"
-    if output_root.exists() and not output_root.is_dir():
-        raise InvalidInputError(f"output_dir is not a directory: {output_root}")
-    if mask_path.exists() and not overwrite:
-        raise InvalidInputError(f"Output exists: {mask_path}; pass overwrite=true to replace it")
-    return image_file, mask_path
-
-
-def _resolve_weights(weights_path: str | Path | None) -> Path:
-    """Return the admitted checkpoint file, downloading the default bundle when omitted."""
-    bundle_dir = (
-        weights_dir("flexible-unet")
-        if weights_path is None else Path(weights_path).expanduser()
+    """Return the image and mask paths after the preflight input and output checks."""
+    image_file = input_file("image_path", image_path)
+    targets = output_targets(
+        output_dir, {"mask": OUTPUT_NAME}, overwrite=overwrite, inputs=[image_file]
     )
-    # Preserve explicit checkpoint-file callers and named cache symlinks.
-    checkpoint = bundle_dir / "flexibleunet.safetensors" if bundle_dir.is_dir() else bundle_dir
-    return _weights_file(str(checkpoint))
+    return image_file, targets["mask"]
 
 
 def _segment(
@@ -183,8 +165,7 @@ def _segment(
     logits, device = _predict(network, image)
     predicted = time.perf_counter()
     mask = postprocess(logits[0], frame.shape[1:])
-    mask_path.parent.mkdir(parents=True, exist_ok=True)
-    _write_atomic(mask_path, mask)
+    publish({mask_path: lambda partial: transforms.write_png(partial, mask)})
     finished = time.perf_counter()
     width, height = frame.shape[1:]
     return {
@@ -248,7 +229,7 @@ def postprocess(logits: FloatArray, size: tuple[int, ...]) -> BoolArray:
     return transforms.tool_mask(restored)
 
 
-def _weights_file(weights_path: str) -> Path:
+def _weights_file(weights_path: Path) -> Path:
     """Require an existing ``.safetensors`` file; the path itself is kept unresolved."""
     # Preserve the named Hub-cache symlink for suffix admission.
     path = Path(weights_path).expanduser().absolute()
@@ -271,10 +252,10 @@ def _weights_file(weights_path: str) -> Path:
 def _load_network(weights: Path) -> FlexibleUNet:
     """Load the checkpoint; a mismatch with the pinned graph raises ``AssetNotReadyError``."""
 
-    from flexible_unet_mlx.weights import load_model
+    from flexible_unet_mlx.weights import load_network
 
     try:
-        return load_model(weights)
+        return load_network(weights)
     except (OSError, InvalidInputError, ValueError, RuntimeError) as error:
         raise AssetNotReadyError(
             f"FlexibleUNet weights {weights} do not match the pinned graph: {error}",
@@ -297,17 +278,4 @@ def _predict(network: FlexibleUNet, image: FloatArray) -> tuple[FloatArray, str]
     return logits, str(network.mx.default_device())
 
 
-def _write_atomic(path: Path, mask: BoolArray) -> None:
-    """Write a PNG through a temporary file and atomically replace its destination."""
-    # Write next to the target, then rename, so an interrupted run cannot leave a
-    # truncated PNG at the final path.
-    descriptor, name = tempfile.mkstemp(prefix=f".{path.name}.", suffix=".png", dir=path.parent)
-    os.close(descriptor)
-    try:
-        transforms.write_png(Path(name), mask)
-        os.replace(name, path)
-    finally:
-        Path(name).unlink(missing_ok=True)
-
-
-__all__ = ["MODEL", "FrameSession", "prepare", "run"]
+__all__ = ["MODEL", "OUTPUT_NAME", "FlexibleUNetModel", "load_model", "segment"]
