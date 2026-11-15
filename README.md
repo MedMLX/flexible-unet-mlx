@@ -36,9 +36,9 @@ uv pip install "flexible-unet-mlx>=0.2.7"
 ## Run
 
 ```python
-from flexible_unet_mlx import segment
+from flexible_unet_mlx import run
 
-result = segment(image_path="frame.jpg", output_dir="out")
+result = run(image_path="frame.jpg", output_dir="out")
 print(result["outputs"]["mask"])
 ```
 
@@ -47,14 +47,14 @@ downloads them ahead of time. For local weights, pass the folder containing
 `flexibleunet.safetensors` as `weights_path`.
 
 To segment a sequence of frames with one loaded network, use `load_model`. Each
-`model.segment` call takes the same image, output and overwrite arguments as `segment`:
+`model.run` call takes the same image, output and overwrite arguments as `run`:
 
 ```python
 from flexible_unet_mlx import load_model
 
 with load_model() as model:
     for frame in ["frame1", "frame2"]:
-        model.segment(image_path=f"{frame}.jpg", output_dir=f"out/{frame}")
+        model.run(image_path=f"{frame}.jpg", output_dir=f"out/{frame}")
 ```
 
 ### Inputs and outputs

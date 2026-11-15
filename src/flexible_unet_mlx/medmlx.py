@@ -26,7 +26,7 @@ MODEL = {
     "id": "flexible-unet",
     "label": "FlexibleUNet endoscopic tools",
     "task": "segmentation",
-    "run": "flexible_unet_mlx.medmlx:segment",
+    "run": "flexible_unet_mlx.medmlx:run",
     "cohort": "flexible_unet_mlx.medmlx:load_model",
     # Measured MLX peak for a 768x576 endoscopy frame; larger inputs need more.
     "peak_memory_gb": 0.3,
@@ -39,7 +39,7 @@ MODEL = {
 OUTPUT_NAME = "mask.png"
 
 
-def segment(
+def run(
     *,
     image_path: str | Path,
     weights_path: str | Path | None = None,
@@ -82,14 +82,14 @@ def segment(
     """
     _destination(image_path, output_dir, overwrite)
     with load_model(weights_path=weights_path) as model:
-        return model.segment(image_path=image_path, output_dir=output_dir, overwrite=overwrite)
+        return model.run(image_path=image_path, output_dir=output_dir, overwrite=overwrite)
 
 
 class FlexibleUNetModel:
     """One loaded FlexibleUNet reused for serial frames until :meth:`close`.
 
     Loading, checkpoint admission and graph compilation happen once; each
-    :meth:`segment` call then has the one-shot :func:`segment` contract for a
+    :meth:`run` call then has the one-shot :func:`run` contract for a
     single frame. The model owns only the network: frames, logits and masks belong
     to each call. ``weights_revision`` is read at loading, and later edits to the
     checkpoint file do not affect the loaded network. Per-frame
@@ -98,17 +98,17 @@ class FlexibleUNetModel:
     """
 
     def __init__(self, *, weights_path: str | Path | None = None) -> None:
-        """Admit and load the checkpoint, raising like :func:`segment`."""
+        """Admit and load the checkpoint, raising like :func:`run`."""
         weights = _weights_file(
             model_folder("flexible-unet", weights_path) / "flexibleunet.safetensors"
         )
         self._revision = weights_revision(weights.parent)
         self._network: FlexibleUNet | None = _load_network(weights)
 
-    def segment(
+    def run(
         self, *, image_path: str | Path, output_dir: str | Path, overwrite: bool = False
     ) -> RunResult:
-        """Segment one frame with the loaded network; see :func:`segment`.
+        """Segment one frame with the loaded network; see :func:`run`.
 
         Raises:
             RuntimeError: The model is closed.
@@ -122,7 +122,7 @@ class FlexibleUNetModel:
         return _segment(network, self._revision, frame, mask_path, started)
 
     def close(self) -> None:
-        """Release the network; later :meth:`segment` calls raise ``RuntimeError``."""
+        """Release the network; later :meth:`run` calls raise ``RuntimeError``."""
         self._network = None
 
     def __enter__(self) -> FlexibleUNetModel:
@@ -137,7 +137,7 @@ class FlexibleUNetModel:
 def load_model(*, weights_path: str | Path | None = None) -> FlexibleUNetModel:
     """Load FlexibleUNet once to segment several frames, or for a MedMLX cohort.
 
-    ``weights_path`` has the meaning it has in :func:`segment`. Close the returned
+    ``weights_path`` has the meaning it has in :func:`run`. Close the returned
     model, or use it as a context manager, to release it.
     """
     return FlexibleUNetModel(weights_path=weights_path)
@@ -278,4 +278,4 @@ def _predict(network: FlexibleUNet, image: FloatArray) -> tuple[FloatArray, str]
     return logits, str(network.mx.default_device())
 
 
-__all__ = ["MODEL", "OUTPUT_NAME", "FlexibleUNetModel", "load_model", "segment"]
+__all__ = ["MODEL", "OUTPUT_NAME", "FlexibleUNetModel", "load_model", "run"]

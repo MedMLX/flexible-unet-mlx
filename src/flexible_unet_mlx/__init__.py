@@ -1,6 +1,6 @@
 """Endoscopic surgical tool segmentation with MONAI FlexibleUNet in native MLX.
 
-``segment`` runs one frame; ``load_model`` keeps the network loaded for several.
+``run`` runs one frame; ``load_model`` keeps the network loaded for several.
 Names load on first access, so importing the package does not import MLX.
 """
 
@@ -15,7 +15,7 @@ if TYPE_CHECKING:
     from flexible_unet_mlx.inference import forward_patch as forward_patch
     from flexible_unet_mlx.medmlx import FlexibleUNetModel as FlexibleUNetModel
     from flexible_unet_mlx.medmlx import load_model as load_model
-    from flexible_unet_mlx.medmlx import segment as segment
+    from flexible_unet_mlx.medmlx import run as run
     from flexible_unet_mlx.network import FlexibleUNet as FlexibleUNet
     from flexible_unet_mlx.weights import load_network as load_network
 
@@ -26,7 +26,7 @@ __all__ = [
     "forward_patch",
     "load_model",
     "load_network",
-    "segment",
+    "run",
     "specification",
 ]
 
@@ -39,7 +39,7 @@ def __getattr__(name: str) -> object:
         "forward_patch": "inference",
         "load_model": "medmlx",
         "load_network": "weights",
-        "segment": "medmlx",
+        "run": "medmlx",
     }
     if name not in modules:
         raise AttributeError(name)

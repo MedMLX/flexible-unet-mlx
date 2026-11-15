@@ -22,7 +22,7 @@ from reference_data import recorded_values, recording, seeded_weights
 
 from flexible_unet_mlx import medmlx, transforms
 from flexible_unet_mlx._typing import FloatArray, NativeRuntime
-from flexible_unet_mlx.medmlx import load_model, segment
+from flexible_unet_mlx.medmlx import load_model, run
 
 save_file = cast(SafetensorsApi, safetensors).save_file
 
@@ -95,7 +95,7 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     blob = tmp_path / "cached-blob"
     save_file(seeded_weights(metadata["weights_seed"]), blob)
     (folder / "flexibleunet.safetensors").symlink_to(blob)
-    result = segment(
+    result = run(
         image_path=str(frame), weights_path=str(folder), output_dir=str(tmp_path / "out")
     )
     with (
@@ -122,13 +122,13 @@ def test_loaded_model_matches_independent_runs(tmp_path: Path, mx: NativeRuntime
     frames = [_frame(tmp_path, case) for case in ("small", "wide", "small")]
     with load_model(weights_path=str(tmp_path)) as model:
         masks = [
-            model.segment(image_path=str(frame), output_dir=str(tmp_path / f"session{index}"))
+            model.run(image_path=str(frame), output_dir=str(tmp_path / f"session{index}"))
             for index, frame in enumerate(frames)
         ]
     with pytest.raises(RuntimeError):
-        model.segment(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
+        model.run(image_path=str(frames[0]), output_dir=str(tmp_path / "closed"))
     for index, (frame, result) in enumerate(zip(frames, masks, strict=True)):
-        single = segment(
+        single = run(
             image_path=str(frame),
             weights_path=str(tmp_path),
             output_dir=str(tmp_path / f"single{index}"),
@@ -175,7 +175,7 @@ def test_run_rejects_invalid_arguments_before_download(
         output.mkdir()
         (output / medmlx.OUTPUT_NAME).write_bytes(b"existing output")
     with pytest.raises(error):
-        segment(
+        run(
             image_path=str(image),
             weights_path=weights,
             output_dir=str(output),
