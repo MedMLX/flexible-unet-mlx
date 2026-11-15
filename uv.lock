@@ -59,7 +59,7 @@ wheels = [
 
 [[package]]
 name = "flexible-unet-mlx"
-version = "0.2.7"
+version = "0.3.0"
 source = { editable = "." }
 dependencies = [
     { name = "medmlx-core" },
