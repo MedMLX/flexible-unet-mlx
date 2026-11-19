@@ -20,7 +20,7 @@ class FlexibleUNet(ChannelLastGraph):
     """EfficientNet-B2 encoder and FlexibleUNet decoder for 2 classes, FP32, on Metal.
 
     ``weights`` maps upstream state-dict names to MLX arrays (batch-norm counters
-    removed). :func:`flexible_unet_mlx.load_model` validates these arrays and returns
+    removed). :func:`flexible_unet_mlx.load_network` validates these arrays and returns
     a constructed model. ``w`` keeps the upstream names, values and
     ``(out, in, kH, kW)`` shapes. The first call stores each dense convolution
     kernel once, in the contiguous ``(out, kH, kW, in)`` layout MLX convolutions
@@ -55,7 +55,7 @@ class FlexibleUNet(ChannelLastGraph):
     def __init__(self, weights: Mapping[str, NativeArray], *, mx: NativeRuntime) -> None:
         """Store the weights; raise ``MissingDependencyError`` unless Metal is the default device.
 
-        Weight names and shapes are not checked here; ``load_model`` validates them.
+        Weight names and shapes are not checked here; ``load_network`` validates them.
         """
         require_metal(mx)
         super().__init__(dict(weights), mx=mx)
