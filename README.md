@@ -96,10 +96,9 @@ logits = forward_patch(network, np.zeros((1, 3, 736, 480), dtype=np.float32))
 - `forward_patch` takes finite float32 `(B, 3, 736, 480)` frames, whose spatial axes are
   width and height as the bundle's reader returns them, and returns raw
   `(B, 2, 736, 480)` logits; channel 1 is the tool class.
-- Preprocessing and postprocessing are the caller's. `FlexibleUNet(weights, mx=mx)` runs
+- Preprocessing and postprocessing are up to you. `FlexibleUNet(weights, mx=mx)` runs
   on MLX arrays directly.
 - `load_network` checks names, shapes, dtypes and finite values.
-- Inference requires Apple Silicon with Metal.
 
 ## Use with MedMLX
 
