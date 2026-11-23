@@ -17,11 +17,12 @@ import safetensors.numpy as safetensors
 from _contracts import FrameMetadata, SafetensorsApi
 from medmlx_core.errors import AssetNotReadyError, InvalidInputError
 from medmlx_core.outputs import validate_outputs
+from medmlx_core.typing import MlxRuntime
 from PIL import Image
 from reference_data import recorded_values, recording, seeded_weights
 
 from flexible_unet_mlx import medmlx, transforms
-from flexible_unet_mlx._typing import FloatArray, NativeRuntime
+from flexible_unet_mlx._typing import FloatArray
 from flexible_unet_mlx.medmlx import load_model, run
 
 save_file = cast(SafetensorsApi, safetensors).save_file
@@ -85,7 +86,7 @@ def test_transforms_match_the_bundle(tmp_path: Path, case: str) -> None:
         assert np.array_equal(np.asarray(written), np.asarray(saved))
 
 
-def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
+def test_run_matches_upstream(tmp_path: Path, mx: MlxRuntime) -> None:
     """The runner's mask from a seeded weights folder matches the upstream runner mask."""
     frame = _frame(tmp_path, "small")
     arrays, metadata = recording("runner")
@@ -114,7 +115,7 @@ def test_run_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
     ]
 
 
-def test_loaded_model_matches_independent_runs(tmp_path: Path, mx: NativeRuntime) -> None:
+def test_loaded_model_matches_independent_runs(tmp_path: Path, mx: MlxRuntime) -> None:
     """A loaded model reproduces one-shot masks across frame sizes, then rejects reuse."""
     _, metadata = recording("runner")
     weights = tmp_path / "flexibleunet.safetensors"

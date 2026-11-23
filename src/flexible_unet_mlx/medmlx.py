@@ -12,10 +12,10 @@ if TYPE_CHECKING:
     from flexible_unet_mlx.network import FlexibleUNet
 
 import numpy as np
-from medmlx_core.errors import AssetNotReadyError, InvalidInputError, ModelExecutionError
+from medmlx_core.errors import ModelExecutionError
 from medmlx_core.files import input_file, output_targets, publish
 from medmlx_core.outputs import artifact
-from medmlx_core.weights import model_folder, weights_revision
+from medmlx_core.weights import weights_file, weights_revision
 
 from flexible_unet_mlx import transforms
 
@@ -99,11 +99,11 @@ class FlexibleUNetModel:
 
     def __init__(self, *, weights_path: str | Path | None = None) -> None:
         """Admit and load the checkpoint, raising like :func:`run`."""
-        weights = _weights_file(
-            model_folder("flexible-unet", weights_path) / "flexibleunet.safetensors"
-        )
+        from flexible_unet_mlx.weights import load_network
+
+        weights = weights_file("flexible-unet", weights_path, "flexibleunet.safetensors")
         self._revision = weights_revision(weights.parent)
-        self._network: FlexibleUNet | None = _load_network(weights)
+        self._network: FlexibleUNet | None = load_network(weights)
 
     def run(
         self, *, image_path: str | Path, output_dir: str | Path, overwrite: bool = False
@@ -227,41 +227,6 @@ def postprocess(logits: FloatArray, size: tuple[int, ...]) -> BoolArray:
     """
     restored = transforms.resize_bilinear(logits, (int(size[0]), int(size[1])))
     return transforms.tool_mask(restored)
-
-
-def _weights_file(weights_path: Path) -> Path:
-    """Require an existing ``.safetensors`` file; the path itself is kept unresolved."""
-    # Preserve the named Hub-cache symlink for suffix admission.
-    path = Path(weights_path).expanduser().absolute()
-    hint = (
-        "Download flexibleunet.safetensors from MedMLX/flexible-unet-effnetb2-mlx."
-    )
-    if not path.is_file():
-        raise AssetNotReadyError(
-            f"FlexibleUNet weights not found: {path}", reason=f"missing {path}", hint=hint
-        )
-    if path.suffix != ".safetensors":
-        raise AssetNotReadyError(
-            f"FlexibleUNet weights must be converted MLX safetensors, got {path.name}",
-            reason=f"unconverted {path.name}",
-            hint=hint,
-        )
-    return path
-
-
-def _load_network(weights: Path) -> FlexibleUNet:
-    """Load the checkpoint; a mismatch with the pinned graph raises ``AssetNotReadyError``."""
-
-    from flexible_unet_mlx.weights import load_network
-
-    try:
-        return load_network(weights)
-    except (OSError, InvalidInputError, ValueError, RuntimeError) as error:
-        raise AssetNotReadyError(
-            f"FlexibleUNet weights {weights} do not match the pinned graph: {error}",
-            reason=f"mismatched {weights.name}",
-            hint="Download flexibleunet.safetensors from MedMLX/flexible-unet-effnetb2-mlx.",
-        ) from error
 
 
 def _predict(network: FlexibleUNet, image: FloatArray) -> tuple[FloatArray, str]:

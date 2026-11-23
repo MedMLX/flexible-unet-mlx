@@ -2,52 +2,17 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import cast
 
-import numpy as np
 from medmlx_core.errors import InvalidInputError
 from medmlx_core.runtime import import_mlx
+from medmlx_core.typing import MlxRuntime
+from medmlx_core.weights import load_tensors
 
-from flexible_unet_mlx._typing import NativeRuntime
 from flexible_unet_mlx.network import FlexibleUNet
 from flexible_unet_mlx.runtime import require_apple_silicon
 from flexible_unet_mlx.specification import specification
-
-if TYPE_CHECKING:
-    from mlx.core import array as NativeArray
-
-MODEL_ID = "endoscopic_tool_segmentation"
-
-
-def _validate(state: Mapping[str, NativeArray], mx: NativeRuntime) -> dict[str, NativeArray]:
-    """Check names, shapes, dtypes and finiteness against ``specification.json``.
-
-    Checks run on the loaded MLX arrays, so each tensor is materialized once from
-    the file and becomes the model weight without a host copy. Training-only
-    BatchNorm counters are not part of the native checkpoint.
-    """
-    expected = {
-        key: value
-        for key, value in specification()["parameters"].items()
-        if not key.endswith("num_batches_tracked")
-    }
-    if set(state) != set(expected):
-        raise InvalidInputError(f"{MODEL_ID} checkpoint names differ from the pinned source graph")
-    dtypes = {"float32": mx.float32}
-    for name, spec in expected.items():
-        value = state[name]
-        if list(value.shape) != spec["shape"] or value.dtype != dtypes.get(spec["dtype"]):
-            raise InvalidInputError(f"Invalid {MODEL_ID} checkpoint parameter: {name}")
-    arrays = {name: state[name] for name in expected}
-    # One evaluation loads every tensor and its finiteness flag together.
-    finite = mx.stack([mx.all(mx.isfinite(value)) for value in arrays.values()])
-    mx.eval(arrays, finite)
-    for name, ok in zip(arrays, np.asarray(finite).tolist(), strict=True):
-        if not ok:
-            raise InvalidInputError(f"Invalid {MODEL_ID} checkpoint parameter: {name}")
-    return arrays
 
 
 def load_network(weights_path: Path) -> FlexibleUNet:
@@ -60,12 +25,20 @@ def load_network(weights_path: Path) -> FlexibleUNet:
     returned network holds materialized arrays.
 
     Raises:
-        InvalidInputError: The loaded mapping or its entries fail validation.
-        RuntimeError: MLX cannot open or decode the weights file.
+        InvalidInputError: The file does not have the ``.safetensors`` suffix.
+        AssetNotReadyError: The file is unreadable or does not match the pinned graph.
         MissingDependencyError: The shared MLX runtime or Metal admission fails.
     """
     if weights_path.suffix != ".safetensors":
         raise InvalidInputError("Native FlexibleUNet weights must use the .safetensors suffix")
     require_apple_silicon()
-    mx = cast(NativeRuntime, import_mlx())
-    return FlexibleUNet(_validate(mx.load(str(weights_path), format="safetensors"), mx), mx=mx)
+    mx = cast(MlxRuntime, import_mlx())
+    shapes = {
+        name: tuple(spec["shape"])
+        for name, spec in specification()["parameters"].items()
+        if not name.endswith("num_batches_tracked")
+    }
+    weights = load_tensors(
+        weights_path, model_id="flexible-unet", label="FlexibleUNet", shapes=shapes
+    )
+    return FlexibleUNet(weights, mx=mx)

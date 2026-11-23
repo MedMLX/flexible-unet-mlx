@@ -6,9 +6,10 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from medmlx_core.channel_last import ChannelLastGraph
+from medmlx_core.typing import MlxRuntime
 
 from flexible_unet_mlx._kernels import depthwise_bn_silu, nearest2x_concat
-from flexible_unet_mlx._typing import Block, NativeRuntime
+from flexible_unet_mlx._typing import Block
 from flexible_unet_mlx.runtime import require_metal
 from flexible_unet_mlx.specification import specification
 
@@ -20,7 +21,7 @@ class FlexibleUNet(ChannelLastGraph):
     """EfficientNet-B2 encoder and FlexibleUNet decoder for 2 classes, FP32, on Metal.
 
     ``weights`` maps upstream state-dict names to MLX arrays (batch-norm counters
-    removed). :func:`flexible_unet_mlx.load_model` validates these arrays and returns
+    removed). :func:`flexible_unet_mlx.load_network` validates these arrays and returns
     a constructed model. ``w`` keeps the upstream names, values and
     ``(out, in, kH, kW)`` shapes. The first call stores each dense convolution
     kernel once, in the contiguous ``(out, kH, kW, in)`` layout MLX convolutions
@@ -37,7 +38,7 @@ class FlexibleUNet(ChannelLastGraph):
     and height in the bundle's reader convention (see ``transforms.read_rgb``).
     """
 
-    mx: NativeRuntime
+    mx: MlxRuntime
     w: Mapping[str, NativeArray]
 
     if TYPE_CHECKING:
@@ -52,10 +53,10 @@ class FlexibleUNet(ChannelLastGraph):
             """Validate the native array against the expected input shape."""
             ...
 
-    def __init__(self, weights: Mapping[str, NativeArray], *, mx: NativeRuntime) -> None:
+    def __init__(self, weights: Mapping[str, NativeArray], *, mx: MlxRuntime) -> None:
         """Store the weights; raise ``MissingDependencyError`` unless Metal is the default device.
 
-        Weight names and shapes are not checked here; ``load_model`` validates them.
+        Weight names and shapes are not checked here; ``load_network`` validates them.
         """
         require_metal(mx)
         super().__init__(dict(weights), mx=mx)

@@ -7,12 +7,11 @@ import sys
 from typing import cast
 
 import pytest
-
-from flexible_unet_mlx._typing import NativeRuntime
+from medmlx_core.typing import MlxRuntime
 
 
 @pytest.fixture(scope="session")
-def mx() -> NativeRuntime:
+def mx() -> MlxRuntime:
     """Admit the Apple Silicon Metal runtime or skip native tests when unavailable."""
     from flexible_unet_mlx.runtime import require_apple_silicon
 
@@ -25,4 +24,4 @@ def mx() -> NativeRuntime:
         )
     from medmlx_core.runtime import import_mlx
 
-    return cast(NativeRuntime, import_mlx())
+    return cast(MlxRuntime, import_mlx())
