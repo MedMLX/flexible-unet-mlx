@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from functools import cache
 from math import prod
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 from medmlx_core.typing import MetalKernel, MlxRuntime
 
@@ -60,16 +60,12 @@ def _kernel(mx: MlxRuntime, depthwise: bool) -> MetalKernel:
     ``math_mode="safe"`` avoids fast-math approximations so ``exp`` and the fused
     multiply-adds stay at full FP32 accuracy.
     """
-    return cast(
-        MetalKernel,
-        mx.fast.metal_kernel(
-            name="flexible_unet_depthwise_bn_silu" if depthwise else "flexible_unet_resize_concat",
-            input_names=["inp", "weight", "mean", "scale", "beta"]
-            if depthwise else ["inp", "skip"],
-            output_names=["out"],
-            source=_DEPTHWISE if depthwise else _RESIZE,
-            compile_options={"math_mode": "safe"},
-        ),
+    return mx.fast.metal_kernel(
+        name="flexible_unet_depthwise_bn_silu" if depthwise else "flexible_unet_resize_concat",
+        input_names=["inp", "weight", "mean", "scale", "beta"] if depthwise else ["inp", "skip"],
+        output_names=["out"],
+        source=_DEPTHWISE if depthwise else _RESIZE,
+        compile_options={"math_mode": "safe"},
     )
 
 

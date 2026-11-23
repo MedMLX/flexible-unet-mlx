@@ -2,16 +2,11 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable, Mapping, Sequence
-from typing import TYPE_CHECKING, Literal, Protocol, TypedDict
+from typing import TypedDict
 
 import numpy as np
 import numpy.typing as npt
 from medmlx_core.outputs import RunResult as _RunResult
-from medmlx_core.typing import MlxRuntime
-
-if TYPE_CHECKING:
-    from mlx.core import StreamOrDevice, array
 
 type HostArray = npt.NDArray[np.generic]
 type FloatArray = npt.NDArray[np.float32]
@@ -76,47 +71,6 @@ class Specification(TypedDict):
     extract_stacks: list[int]
     stem_padding: list[int]
     blocks: list[Block]
-
-
-type NativeTree = array | Sequence[NativeTree] | Mapping[str, NativeTree]
-
-
-class NativeRuntime(MlxRuntime, Protocol):
-    def load(self, file: str, /, format: Literal["safetensors"]) -> dict[str, array]:
-        """Read named MLX arrays from a safetensors checkpoint."""
-        ...
-
-    def save_safetensors(self, file: str, arrays: dict[str, array]) -> None:
-        """Write named MLX arrays as safetensors."""
-        ...
-
-    def eval(self, *values: NativeTree) -> None:
-        """Evaluate MLX arrays in the supplied trees."""
-        ...
-
-    def compile(self, fun: Callable[[array], array]) -> Callable[[array], array]:
-        """Compile an array-to-array inference function."""
-        ...
-
-    def contiguous(self, x: array, /, *, stream: StreamOrDevice = None) -> array:
-        """Return a contiguous copy when the array is not contiguous."""
-        ...
-
-    def synchronize(self, stream: StreamOrDevice = None) -> None:
-        """Wait for work on the specified or default stream to finish."""
-        ...
-
-    def full(self, shape: Sequence[int], vals: float) -> array:
-        """Create an array filled with the specified scalar."""
-        ...
-
-    def isfinite(self, a: array, /) -> array:
-        """Return elementwise finiteness."""
-        ...
-
-    def all(self, a: array, /) -> array:
-        """Reduce to a scalar that is true when every element is true."""
-        ...
 
 
 class ImageSize(TypedDict):

@@ -6,7 +6,6 @@ from typing import cast
 
 import numpy as np
 from medmlx_core.errors import InvalidInputError
-from medmlx_core.typing import ArrayFactory
 
 from flexible_unet_mlx._typing import FloatArray, HostArray
 from flexible_unet_mlx.network import FlexibleUNet
@@ -40,8 +39,7 @@ def forward_patch(network: FlexibleUNet, values: HostArray) -> FloatArray:
         raise InvalidInputError("Network input must be finite float32")
     mx = network.mx
     require_metal(mx)
-    array = cast(ArrayFactory, mx.array)
-    result = network(array(values))
+    result = network(mx.array(values))
     # MLX is lazy: force the graph to run, and wait for the GPU, before reading back.
     mx.eval(result)
     mx.synchronize()

@@ -5,8 +5,7 @@ from __future__ import annotations
 import platform
 
 from medmlx_core.errors import MissingDependencyError
-
-from flexible_unet_mlx._typing import NativeRuntime
+from medmlx_core.typing import MlxRuntime
 
 
 def require_apple_silicon() -> None:
@@ -18,7 +17,7 @@ def require_apple_silicon() -> None:
         )
 
 
-def require_metal(mx: NativeRuntime) -> None:
+def require_metal(mx: MlxRuntime) -> None:
     """Raise ``MissingDependencyError`` unless Metal is available and MLX's default device.
 
     ``mx`` is the module returned by ``medmlx_core.import_mlx()``. The check is repeated

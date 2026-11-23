@@ -11,7 +11,8 @@ import numpy as np
 import pytest
 import safetensors.numpy as safetensors
 from _contracts import OracleReceipt, SafetensorsApi
-from medmlx_core.errors import InvalidInputError
+from medmlx_core.errors import AssetNotReadyError
+from medmlx_core.typing import MlxRuntime
 from reference_data import recording, seeded_weights
 
 from flexible_unet_mlx import (
@@ -19,7 +20,7 @@ from flexible_unet_mlx import (
     load_network,
     specification,
 )
-from flexible_unet_mlx._typing import FloatArray, NativeRuntime
+from flexible_unet_mlx._typing import FloatArray
 
 if TYPE_CHECKING:
     from mlx.core import array as NativeArray
@@ -27,7 +28,7 @@ if TYPE_CHECKING:
 save_file = cast(SafetensorsApi, safetensors).save_file
 
 
-def test_converted_model_matches_independent_source(tmp_path: Path, mx: NativeRuntime) -> None:
+def test_converted_model_matches_independent_source(tmp_path: Path, mx: MlxRuntime) -> None:
     """Compare an explicitly supplied released checkpoint with independent source outputs."""
     checkpoint = os.environ.get("MODEL_WEIGHTS")
     reference = os.environ.get("MODEL_SOURCE_OUTPUT")
@@ -53,7 +54,7 @@ def test_converted_model_matches_independent_source(tmp_path: Path, mx: NativeRu
 
 @pytest.fixture(scope="module")
 def converted_weights(
-    tmp_path_factory: pytest.TempPathFactory, mx: NativeRuntime
+    tmp_path_factory: pytest.TempPathFactory, mx: MlxRuntime
 ) -> dict[str, NativeArray]:
     """Create and validate a seeded converted checkpoint for admission cases."""
     destination = tmp_path_factory.mktemp("converted") / "model.safetensors"
@@ -65,7 +66,7 @@ def converted_weights(
 
 @pytest.mark.parametrize("corruption", ["missing", "dtype", "nonfinite"])
 def test_converted_checkpoint_admission(
-    tmp_path: Path, converted_weights: dict[str, NativeArray], corruption: str, mx: NativeRuntime
+    tmp_path: Path, converted_weights: dict[str, NativeArray], corruption: str, mx: MlxRuntime
 ) -> None:
     """Reject missing, wrongly typed, or non-finite checkpoint tensors."""
     weights = dict(converted_weights)
@@ -79,11 +80,11 @@ def test_converted_checkpoint_admission(
         weights[name] = mx.full(value.shape, float("nan"))
     destination = tmp_path / "invalid.safetensors"
     mx.save_safetensors(str(destination), weights)
-    with pytest.raises(InvalidInputError):
+    with pytest.raises(AssetNotReadyError):
         load_network(destination)
 
 
-def test_seeded_network_matches_upstream(tmp_path: Path, mx: NativeRuntime) -> None:
+def test_seeded_network_matches_upstream(tmp_path: Path, mx: MlxRuntime) -> None:
     """Compare seeded native network logits and decisions with source recordings."""
     arrays, metadata = recording("network")
     destination = tmp_path / "seeded.safetensors"

@@ -6,9 +6,10 @@ from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING
 
 from medmlx_core.channel_last import ChannelLastGraph
+from medmlx_core.typing import MlxRuntime
 
 from flexible_unet_mlx._kernels import depthwise_bn_silu, nearest2x_concat
-from flexible_unet_mlx._typing import Block, NativeRuntime
+from flexible_unet_mlx._typing import Block
 from flexible_unet_mlx.runtime import require_metal
 from flexible_unet_mlx.specification import specification
 
@@ -37,7 +38,7 @@ class FlexibleUNet(ChannelLastGraph):
     and height in the bundle's reader convention (see ``transforms.read_rgb``).
     """
 
-    mx: NativeRuntime
+    mx: MlxRuntime
     w: Mapping[str, NativeArray]
 
     if TYPE_CHECKING:
@@ -52,7 +53,7 @@ class FlexibleUNet(ChannelLastGraph):
             """Validate the native array against the expected input shape."""
             ...
 
-    def __init__(self, weights: Mapping[str, NativeArray], *, mx: NativeRuntime) -> None:
+    def __init__(self, weights: Mapping[str, NativeArray], *, mx: MlxRuntime) -> None:
         """Store the weights; raise ``MissingDependencyError`` unless Metal is the default device.
 
         Weight names and shapes are not checked here; ``load_network`` validates them.
