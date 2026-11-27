@@ -19,7 +19,7 @@ if TYPE_CHECKING:
     from flexible_unet_mlx.network import FlexibleUNet as FlexibleUNet
     from flexible_unet_mlx.weights import load_network as load_network
 
-__version__ = "0.4.0"
+__version__ = "0.4.1"
 __all__ = [
     "FlexibleUNet",
     "FlexibleUNetModel",
